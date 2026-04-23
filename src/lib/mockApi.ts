@@ -26,7 +26,7 @@ const STORAGE = {
 };
 
 // Bump this whenever we want to wipe stale demo data from existing browsers.
-const SEED_VERSION = "3";
+const SEED_VERSION = "4";
 const SEED_VERSION_KEY = "svp_seed_version";
 
 type WalletTx = {
