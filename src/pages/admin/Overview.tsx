@@ -31,11 +31,11 @@ export default function AdminOverview() {
             <tbody>
               {(s?.recent || []).map((r: any) => (
                 <tr key={r.id} className="border-t border-border/60">
-                  <td className="py-2 px-2 text-xs whitespace-nowrap">{r.date}</td>
+                  <td className="py-2 px-2 text-xs whitespace-nowrap">{r.date ? new Date(r.date).toLocaleString() : ""}</td>
                   <td className="py-2 px-2 font-mono text-xs">{r.recipient}</td>
                   <td className="py-2 px-2 text-xs text-muted-foreground">{r.direction}</td>
                   <td className="py-2 px-2"><StatusBadge status={r.status} /></td>
-                  <td className="py-2 px-2 text-right">{r.cost?.toFixed(3)} €</td>
+                  <td className="py-2 px-2 text-right">{Number(r.customer_cost ?? r.cost ?? 0).toFixed(3)} €</td>
                 </tr>
               ))}
             </tbody>

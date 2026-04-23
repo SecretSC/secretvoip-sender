@@ -93,7 +93,7 @@ export default function CustomerOverview() {
                     <td className="py-2 px-2 font-mono text-xs">{r.recipient}</td>
                     <td className="py-2 px-2 max-w-[260px] truncate">{r.message}</td>
                     <td className="py-2 px-2"><StatusBadge status={r.status} /></td>
-                    <td className="py-2 px-2 text-right">{r.cost?.toFixed(3)} €</td>
+                    <td className="py-2 px-2 text-right">{Number(r.cost ?? 0).toFixed(3)} €</td>
                   </tr>
                 ))}
                 {(!s?.recent || s.recent.length === 0) && (
