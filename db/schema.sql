@@ -17,8 +17,24 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS customer_profiles (
   user_id         UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   default_sender  TEXT,
-  notes           TEXT
+  notes           TEXT,
+  balance_eur     NUMERIC(12,4) NOT NULL DEFAULT 0
 );
+
+-- Make sure the column exists on already-deployed databases
+ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS balance_eur NUMERIC(12,4) NOT NULL DEFAULT 0;
+
+-- Manual top-up ledger (admin records every credit/debit)
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+  id              BIGSERIAL PRIMARY KEY,
+  customer_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount_eur      NUMERIC(12,4) NOT NULL,        -- positive = top-up, negative = adjustment/charge
+  type            TEXT NOT NULL CHECK (type IN ('topup','adjustment','charge','refund')),
+  note            TEXT,
+  created_by      TEXT,                          -- admin email
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_customer_date ON wallet_transactions (customer_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS sms_requests (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
