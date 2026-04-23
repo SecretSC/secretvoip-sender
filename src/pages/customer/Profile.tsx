@@ -4,9 +4,13 @@ import { useAuth } from "@/lib/auth";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { api } from "@/lib/api";
+import { Wallet, MessageCircle } from "lucide-react";
+
+const TELEGRAM_HANDLE = "Hamfranord";
 
 export default function CustomerProfile() {
   const { user, changePassword, logout } = useAuth();
@@ -15,6 +19,9 @@ export default function CustomerProfile() {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [wallet, setWallet] = useState<{ balance_eur: number; transactions: any[] }>({ balance_eur: 0, transactions: [] });
+
+  useEffect(() => { api.myWallet().then((r: any) => setWallet({ balance_eur: Number(r.balance_eur || 0), transactions: r.transactions || [] })); }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +34,32 @@ export default function CustomerProfile() {
 
   return (
     <DashboardLayout kind="customer">
-      <PageHeader title="Profile" subtitle="Manage your account credentials and session." />
+      <PageHeader title="Profile" subtitle="Manage your account, balance and credentials." />
+
+      {/* Wallet card */}
+      <div className="ring-gradient glass rounded-2xl p-5 mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-xl bg-secondary/15 ring-1 ring-secondary/30 flex items-center justify-center">
+            <Wallet className="w-7 h-7 text-secondary-glow" />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Wallet balance</div>
+            <div className="font-display text-3xl md:text-4xl mt-1">
+              {wallet.balance_eur.toFixed(2)} <span className="text-secondary-glow text-2xl">€</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Top-ups are processed manually by the admin.</div>
+          </div>
+        </div>
+        <div className="flex flex-col items-start md:items-end gap-2">
+          <a href={`https://t.me/${TELEGRAM_HANDLE}`} target="_blank" rel="noopener noreferrer">
+            <Button variant="hero"><MessageCircle className="w-4 h-4" /> Top up via Telegram</Button>
+          </a>
+          <div className="text-xs text-muted-foreground">
+            Message <span className="text-foreground font-mono">@{TELEGRAM_HANDLE}</span> on Telegram with the amount in EUR.
+          </div>
+        </div>
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-5">
         <div className="ring-gradient glass rounded-2xl p-5">
           <div className="text-xs uppercase tracking-widest text-muted-foreground">Account</div>
@@ -57,6 +89,43 @@ export default function CustomerProfile() {
           </div>
           <Button type="submit" variant="hero" disabled={loading}>{loading ? "Updating…" : "Update password"}</Button>
         </form>
+      </div>
+
+      {/* Transactions */}
+      <div className="ring-gradient glass rounded-2xl p-5 mt-5">
+        <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Wallet history</div>
+        {wallet.transactions.length === 0 ? (
+          <div className="text-center text-sm text-muted-foreground py-8">No transactions yet. Contact @{TELEGRAM_HANDLE} on Telegram to top up.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground uppercase tracking-wider">
+                <tr>
+                  <th className="text-left py-2 px-2">Date</th>
+                  <th className="text-left py-2 px-2">Type</th>
+                  <th className="text-left py-2 px-2">Note</th>
+                  <th className="text-right py-2 px-2">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wallet.transactions.map((t: any) => {
+                  const positive = Number(t.amount_eur) >= 0;
+                  const date = t.created_at || t.at;
+                  return (
+                    <tr key={t.id} className="border-t border-border/60">
+                      <td className="py-2 px-2 text-xs text-muted-foreground">{date ? new Date(date).toLocaleString() : ""}</td>
+                      <td className="py-2 px-2 text-xs uppercase">{t.type}</td>
+                      <td className="py-2 px-2 text-muted-foreground">{t.note || "—"}</td>
+                      <td className={`py-2 px-2 text-right font-mono ${positive ? "text-success" : "text-destructive"}`}>
+                        {positive ? "+" : ""}{Number(t.amount_eur).toFixed(2)} €
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

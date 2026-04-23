@@ -21,11 +21,22 @@ const STORAGE = {
   logs: "svp_logs",
   audit: "svp_audit",
   me: "svp_me",
+  wallets: "svp_wallets",        // { [userId]: number }
+  walletTx: "svp_wallet_tx",     // { [userId]: Tx[] }
 };
 
 // Bump this whenever we want to wipe stale demo data from existing browsers.
-const SEED_VERSION = "2";
+const SEED_VERSION = "3";
 const SEED_VERSION_KEY = "svp_seed_version";
+
+type WalletTx = {
+  id: string;
+  at: string;
+  amount_eur: number;
+  type: "topup" | "adjustment" | "charge" | "refund";
+  note?: string;
+  created_by?: string;
+};
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -225,7 +236,40 @@ export const mockApi = {
   // ---- Admin ----
   async customers() {
     const users = read<User[]>(STORAGE.users, []);
-    return delay(users.filter((u) => u.role === "customer").map((u) => ({ ...u, password: undefined })));
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    return delay(
+      users
+        .filter((u) => u.role === "customer")
+        .map((u) => ({ ...u, password: undefined, balance_eur: wallets[u.id] ?? 0 }))
+    );
+  },
+
+  // ---- Wallet / manual top-up ----
+  async customerWallet(id: string) {
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    return delay({ balance_eur: wallets[id] ?? 0, transactions: tx[id] ?? [] });
+  },
+  async topUpCustomer(id: string, amount_eur: number, note?: string, type: WalletTx["type"] = "topup") {
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    const m = me();
+    const next = +(((wallets[id] ?? 0) + amount_eur).toFixed(4));
+    wallets[id] = next;
+    const list = tx[id] ?? [];
+    list.unshift({ id: uid(), at: now(), amount_eur, type, note, created_by: m?.email });
+    tx[id] = list.slice(0, 100);
+    write(STORAGE.wallets, wallets);
+    write(STORAGE.walletTx, tx);
+    audit(m?.email || "system", "wallet.topup", id, JSON.stringify({ amount: amount_eur, type, note }));
+    return delay({ ok: true, balance_eur: next });
+  },
+  async myWallet() {
+    const m = me();
+    if (!m) return { balance_eur: 0, transactions: [] };
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    return delay({ balance_eur: wallets[m.id] ?? 0, transactions: tx[m.id] ?? [] });
   },
   async createCustomer(payload: { name: string; email: string; username: string; password: string; mustChangePassword?: boolean }) {
     const users = read<User[]>(STORAGE.users, []);
@@ -290,12 +334,14 @@ export const mockApi = {
   async customerStats() {
     const m = me();
     const logs = read<any[]>(STORAGE.logs, []).filter((l) => !m || l.customer_id === m.id);
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
     return delay({
       sent: logs.length,
       delivered: logs.filter((l) => l.status === "delivered").length,
       failed: logs.filter((l) => l.status === "failed").length,
       routes: ROUTE_CATALOG.length,
       recent: logs.slice(0, 6),
+      balance_eur: m ? wallets[m.id] ?? 0 : 0,
     });
   },
 };

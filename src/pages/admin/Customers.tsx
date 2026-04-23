@@ -8,13 +8,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { KeyRound, Plus, Trash2, UserCog } from "lucide-react";
+import { KeyRound, Plus, Trash2, UserCog, Wallet } from "lucide-react";
+import TopUpDialog from "@/components/admin/TopUpDialog";
 
 export default function Customers() {
   const [list, setList] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", mustChangePassword: true });
+  const [topUpFor, setTopUpFor] = useState<any | null>(null);
 
   const load = () => api.customers().then((r: any) => setList(r));
   useEffect(() => { load(); }, []);
@@ -39,7 +41,15 @@ export default function Customers() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground uppercase tracking-wider bg-card/50">
-              <tr><th className="text-left py-3 px-4">Name</th><th className="text-left py-3 px-4">Email</th><th className="text-left py-3 px-4">Username</th><th className="text-left py-3 px-4">Status</th><th className="text-left py-3 px-4">Created</th><th className="text-right py-3 px-4">Actions</th></tr>
+              <tr>
+                <th className="text-left py-3 px-4">Name</th>
+                <th className="text-left py-3 px-4">Email</th>
+                <th className="text-left py-3 px-4">Username</th>
+                <th className="text-left py-3 px-4">Status</th>
+                <th className="text-right py-3 px-4">Balance</th>
+                <th className="text-left py-3 px-4">Created</th>
+                <th className="text-right py-3 px-4">Actions</th>
+              </tr>
             </thead>
             <tbody>
               {list.map((u) => (
@@ -48,9 +58,15 @@ export default function Customers() {
                   <td className="py-2.5 px-4 text-muted-foreground">{u.email}</td>
                   <td className="py-2.5 px-4 font-mono text-xs">{u.username}</td>
                   <td className="py-2.5 px-4"><StatusBadge status={u.status} /></td>
-                  <td className="py-2.5 px-4 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-secondary-glow">
+                    {Number(u.balance_eur ?? 0).toFixed(2)} €
+                  </td>
+                  <td className="py-2.5 px-4 text-xs text-muted-foreground">{new Date(u.createdAt || u.created_at).toLocaleDateString()}</td>
                   <td className="py-2.5 px-4 text-right">
                     <div className="inline-flex gap-1">
+                      <Button size="sm" variant="hero" onClick={() => setTopUpFor(u)} title="Top up balance">
+                        <Wallet className="w-3.5 h-3.5" /> Top up
+                      </Button>
                       <Button size="sm" variant="soft" onClick={() => reset(u)} title="Reset password"><KeyRound className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => toggleSuspend(u)} title={u.status === "active" ? "Suspend" : "Activate"}><UserCog className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => remove(u)} title="Delete"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
@@ -58,11 +74,18 @@ export default function Customers() {
                   </td>
                 </tr>
               ))}
-              {list.length === 0 && <tr><td colSpan={6}><EmptyState title="No customers yet" description="Create your first customer to get started." /></td></tr>}
+              {list.length === 0 && <tr><td colSpan={7}><EmptyState title="No customers yet" description="Create your first customer to get started." /></td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+
+      <TopUpDialog
+        customer={topUpFor}
+        open={!!topUpFor}
+        onOpenChange={(v) => !v && setTopUpFor(null)}
+        onUpdated={load}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="glass-strong border-border">

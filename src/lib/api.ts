@@ -66,6 +66,15 @@ export const api = {
   resetCustomerPassword: (id: string) =>
     USE_MOCK ? mockApi.resetCustomerPassword(id) : request(`/admin/customers/${id}/reset-password`, { method: "POST" }),
 
+  // Wallet / manual top-up
+  customerWallet: (id: string) =>
+    USE_MOCK ? mockApi.customerWallet(id) : request(`/admin/customers/${id}/wallet`),
+  topUpCustomer: (id: string, amount_eur: number, note?: string, type: "topup" | "adjustment" | "charge" | "refund" = "topup") =>
+    USE_MOCK
+      ? mockApi.topUpCustomer(id, amount_eur, note, type)
+      : request(`/admin/customers/${id}/topup`, { method: "POST", body: JSON.stringify({ amount_eur, note, type }) }),
+  myWallet: () => USE_MOCK ? mockApi.myWallet() : request("/me/wallet"),
+
   auditLog: () => USE_MOCK ? mockApi.auditLog() : request("/admin/audit"),
   stats: () => USE_MOCK ? mockApi.stats() : request("/admin/stats"),
   customerStats: () => USE_MOCK ? mockApi.customerStats() : request("/me/stats"),
