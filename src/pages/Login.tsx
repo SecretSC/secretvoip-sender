@@ -10,8 +10,8 @@ import { Zap, ArrowRight, Mail, KeyRound } from "lucide-react";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState("admin@secretvoip.com");
-  const [password, setPassword] = useState("ChangeMe!2026");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
 
@@ -55,22 +55,6 @@ export default function Login() {
           <p className="text-muted-foreground mt-3">
             Send, route, monitor and audit messaging at scale — from one premium operations console.
           </p>
-
-          <div className="mt-8 ring-gradient glass rounded-2xl p-5 text-sm">
-            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-2">Demo credentials</div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg p-3 bg-card/60 border border-border">
-                <div className="text-[11px] uppercase text-muted-foreground">Admin</div>
-                <div className="font-mono text-xs mt-1">admin@secretvoip.com</div>
-                <div className="font-mono text-xs">ChangeMe!2026</div>
-              </div>
-              <div className="rounded-lg p-3 bg-card/60 border border-border">
-                <div className="text-[11px] uppercase text-muted-foreground">Customer</div>
-                <div className="font-mono text-xs mt-1">demo@secretvoip.com</div>
-                <div className="font-mono text-xs">demo1234</div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="text-xs text-muted-foreground">© {new Date().getFullYear()} SecretVoIP — All rights reserved.</div>
