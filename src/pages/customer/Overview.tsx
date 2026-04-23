@@ -3,14 +3,18 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import { PageHeader, StatCard, StatusBadge } from "@/components/ui-kit";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Send, CheckCircle2, XCircle, Map, ArrowRight, Radar } from "lucide-react";
+import { Send, CheckCircle2, XCircle, Map, ArrowRight, Radar, Wallet, MessageCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+
+const TELEGRAM_HANDLE = "Hamfranord";
 
 export default function CustomerOverview() {
   const { user } = useAuth();
   const [s, setS] = useState<any>(null);
   useEffect(() => { api.customerStats().then(setS); }, []);
+
+  const balance = Number(s?.balance_eur ?? 0);
 
   return (
     <DashboardLayout kind="customer">
@@ -24,6 +28,36 @@ export default function CustomerOverview() {
           </>
         }
       />
+
+      {/* Balance hero card */}
+      <div className="ring-gradient glass rounded-2xl p-5 mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-xl bg-secondary/15 ring-1 ring-secondary/30 flex items-center justify-center">
+            <Wallet className="w-7 h-7 text-secondary-glow" />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground">Wallet balance</div>
+            <div className="font-display text-3xl md:text-4xl mt-1">
+              {balance.toFixed(2)} <span className="text-secondary-glow text-2xl">€</span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Used to pay for every SMS you send.</div>
+          </div>
+        </div>
+        <div className="flex flex-col items-start md:items-end gap-2">
+          <a
+            href={`https://t.me/${TELEGRAM_HANDLE}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Button variant="hero">
+              <MessageCircle className="w-4 h-4" /> Top up via Telegram
+            </Button>
+          </a>
+          <div className="text-xs text-muted-foreground">
+            Contact <span className="text-foreground font-mono">@{TELEGRAM_HANDLE}</span> on Telegram to add credit.
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Sent" value={s?.sent ?? "—"} icon={<Send className="w-5 h-5" />} accent="primary" />
