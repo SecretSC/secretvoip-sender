@@ -23,6 +23,10 @@ const STORAGE = {
   me: "svp_me",
 };
 
+// Bump this whenever we want to wipe stale demo data from existing browsers.
+const SEED_VERSION = "2";
+const SEED_VERSION_KEY = "svp_seed_version";
+
 function read<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -44,6 +48,14 @@ function fmt(d = new Date()) {
 
 // ----- Seeding -----
 function seed() {
+  // Force a clean slate when SEED_VERSION changes (wipes any old demo logs/audit).
+  const currentVersion = localStorage.getItem(SEED_VERSION_KEY);
+  if (currentVersion !== SEED_VERSION) {
+    localStorage.removeItem(STORAGE.logs);
+    localStorage.removeItem(STORAGE.audit);
+    localStorage.setItem(SEED_VERSION_KEY, SEED_VERSION);
+  }
+
   let users = read<User[]>(STORAGE.users, []);
   if (users.length === 0) {
     users = [
@@ -72,32 +84,9 @@ function seed() {
     write(STORAGE.users, users);
   }
 
-  const logs = read<any[]>(STORAGE.logs, []);
-  if (logs.length === 0) {
-    const sample = ["12025550123", "447700900111", "33612345678", "4915112345678", "34699112233"];
-    const status = ["delivered", "delivered", "delivered", "sent", "failed"];
-    const directions = ["United States Mobile", "United Kingdom Mobile", "France Mobile", "Germany Mobile", "Spain Mobile"];
-    const seeded = Array.from({ length: 24 }).map((_, i) => ({
-      id: 2300 + i,
-      date: fmt(new Date(Date.now() - i * 3600_000)),
-      recipient: sample[i % sample.length],
-      sender_id: "SecretVoIP",
-      segments: 1 + (i % 3),
-      cost: +(0.01 + (i % 7) * 0.012).toFixed(3),
-      status: status[i % status.length],
-      message: ["Your code is 8421", "Welcome to SecretVoIP", "Order shipped", "Reminder: appointment tomorrow", "Promo today only"][i % 5],
-      direction: directions[i % directions.length],
-      customer_id: i % 3 === 0 ? "u_admin" : "u_demo",
-    }));
-    write(STORAGE.logs, seeded);
-  }
-
-  const audit = read<any[]>(STORAGE.audit, []);
-  if (audit.length === 0) {
-    write(STORAGE.audit, [
-      { id: uid(), at: now(), actor: "admin@secretvoip.com", action: "system.seed", target: "platform", meta: "Initial seed" },
-    ]);
-  }
+  // Start with empty logs and empty audit log — no fake activity.
+  if (!localStorage.getItem(STORAGE.logs)) write(STORAGE.logs, []);
+  if (!localStorage.getItem(STORAGE.audit)) write(STORAGE.audit, []);
 }
 seed();
 
