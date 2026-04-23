@@ -48,8 +48,9 @@ export default function GammaCountryModal({
           <div className="space-y-2">
             {filtered.map((c) => {
               const isOpen = openCountry === c.country;
-              const min = Math.min(...c.channels.map((ch) => ch.price));
-              const max = Math.max(...c.channels.map((ch) => ch.price));
+              const prices = c.channels.map((ch) => Number(ch.price) || 0);
+              const min = prices.length ? Math.min(...prices) : 0;
+              const max = prices.length ? Math.max(...prices) : 0;
               return (
                 <div key={c.country} className="rounded-xl border border-border bg-card/50 overflow-hidden">
                   <button
@@ -112,7 +113,7 @@ function ChannelChip({ ch, selected, onClick }: { ch: GammaChannel; country: str
     >
       <div className="flex items-center justify-between">
         <div className="font-mono text-sm">{ch.name}</div>
-        <div className="text-xs text-secondary-glow font-medium">{ch.price.toFixed(2)} €</div>
+        <div className="text-xs text-secondary-glow font-medium">{(Number(ch.price) || 0).toFixed(2)} €</div>
       </div>
     </button>
   );

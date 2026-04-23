@@ -24,14 +24,14 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
 -- Make sure the column exists on already-deployed databases
 ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS balance_eur NUMERIC(12,4) NOT NULL DEFAULT 0;
 
--- Manual top-up ledger (admin records every credit/debit)
+-- Manual top-up ledger (admin records every credit/debit, including SMS charges)
 CREATE TABLE IF NOT EXISTS wallet_transactions (
   id              BIGSERIAL PRIMARY KEY,
   customer_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   amount_eur      NUMERIC(12,4) NOT NULL,        -- positive = top-up, negative = adjustment/charge
   type            TEXT NOT NULL CHECK (type IN ('topup','adjustment','charge','refund')),
   note            TEXT,
-  created_by      TEXT,                          -- admin email
+  created_by      TEXT,                          -- admin email or 'system'
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_customer_date ON wallet_transactions (customer_id, created_at DESC);
@@ -51,12 +51,20 @@ CREATE TABLE IF NOT EXISTS sms_logs_cache (
   recipient       TEXT NOT NULL,
   sender_id       TEXT,
   segments        INT DEFAULT 1,
-  cost            NUMERIC(10,4) DEFAULT 0,
+  cost            NUMERIC(10,4) DEFAULT 0,        -- legacy: kept = customer_cost
+  provider_cost   NUMERIC(10,4) DEFAULT 0,        -- what we paid upstream
+  customer_cost   NUMERIC(10,4) DEFAULT 0,        -- what we charged the customer
+  margin          NUMERIC(10,4) DEFAULT 0,        -- customer_cost - provider_cost
   status          TEXT,
   message         TEXT,
   direction       TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- For previously-deployed databases:
+ALTER TABLE sms_logs_cache ADD COLUMN IF NOT EXISTS provider_cost NUMERIC(10,4) DEFAULT 0;
+ALTER TABLE sms_logs_cache ADD COLUMN IF NOT EXISTS customer_cost NUMERIC(10,4) DEFAULT 0;
+ALTER TABLE sms_logs_cache ADD COLUMN IF NOT EXISTS margin        NUMERIC(10,4) DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_logs_customer_date ON sms_logs_cache (customer_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_recipient ON sms_logs_cache (recipient);
 
@@ -81,6 +89,11 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   value           JSONB NOT NULL,
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Default reseller markup = 50% (1.5x). Admin can change it later.
+INSERT INTO admin_settings (key, value)
+VALUES ('reseller_markup', '{"percent": 50}'::jsonb)
+ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id              BIGSERIAL PRIMARY KEY,

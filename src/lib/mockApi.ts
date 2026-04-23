@@ -26,7 +26,7 @@ const STORAGE = {
 };
 
 // Bump this whenever we want to wipe stale demo data from existing browsers.
-const SEED_VERSION = "3";
+const SEED_VERSION = "4";
 const SEED_VERSION_KEY = "svp_seed_version";
 
 type WalletTx = {
@@ -152,9 +152,23 @@ export const mockApi = {
     const m = me();
     const recipients: string[] = Array.isArray(payload.to) ? payload.to : [payload.to];
     const segments = Math.max(1, Math.ceil((payload.message?.length || 1) / 160));
-    const perCost = 0.014;
-    const total_cost = +(recipients.length * segments * perCost).toFixed(3);
-    const messages = recipients.map((r, i) => ({
+    const providerPer = 0.014;
+    const MARKUP = 1.5;
+    const customerPer = +(providerPer * MARKUP).toFixed(4);
+    const provider_total = +(recipients.length * segments * providerPer).toFixed(4);
+    const customer_total = +(recipients.length * segments * customerPer).toFixed(4);
+
+    // Balance check (mock)
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    if (m && m.role === "customer") {
+      const bal = wallets[m.id] ?? 0;
+      if (bal <= 0) {
+        throw new Error("Insufficient balance. Please top up your wallet to send SMS.");
+      }
+    }
+
+    const messages = recipients.map((r) => ({
       id: 9000 + Math.floor(Math.random() * 9999),
       recipient: r,
       status: Math.random() > 0.05 ? "sent" : "failed",
@@ -164,13 +178,18 @@ export const mockApi = {
     // store in logs
     const logs = read<any[]>(STORAGE.logs, []);
     messages.forEach((mm) => {
+      const segCustomer = +(customerPer * segments).toFixed(4);
+      const segProvider = +(providerPer * segments).toFixed(4);
       logs.unshift({
         id: mm.id,
         date: fmt(),
         recipient: mm.recipient,
         sender_id: payload.sender_id || "SecretVoIP",
         segments,
-        cost: +(perCost * segments).toFixed(3),
+        cost: segCustomer,
+        customer_cost: segCustomer,
+        provider_cost: segProvider,
+        margin: +(segCustomer - segProvider).toFixed(4),
         status: mm.status === "sent" ? (Math.random() > 0.1 ? "delivered" : "sent") : "failed",
         message: payload.message,
         direction: "Auto-routed",
@@ -178,6 +197,26 @@ export const mockApi = {
       });
     });
     write(STORAGE.logs, logs.slice(0, 1000));
+
+    // Deduct from wallet + record charge tx
+    let new_balance = (m && wallets[m.id]) || 0;
+    if (m && m.role === "customer" && customer_total > 0) {
+      new_balance = +(((wallets[m.id] ?? 0) - customer_total).toFixed(4));
+      wallets[m.id] = new_balance;
+      const list = tx[m.id] ?? [];
+      list.unshift({
+        id: uid(),
+        at: now(),
+        amount_eur: -customer_total,
+        type: "charge",
+        note: `SMS send · ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} · route ${payload.route_option_id || "auto"}`,
+        created_by: "system",
+      });
+      tx[m.id] = list.slice(0, 100);
+      write(STORAGE.wallets, wallets);
+      write(STORAGE.walletTx, tx);
+    }
+
     if (m) audit(m.email, "sms.send", `${recipients.length} recipients`, `route=${payload.route_option_id || "auto"}`);
 
     return delay({
@@ -185,8 +224,10 @@ export const mockApi = {
       sent: recipients.length - failed,
       failed,
       segments,
-      total_cost,
-      wallet_balance: 19.986,
+      total_cost: customer_total,
+      provider_cost: m?.role === "admin" ? provider_total : undefined,
+      margin: m?.role === "admin" ? +(customer_total - provider_total).toFixed(4) : undefined,
+      wallet_balance: new_balance,
       messages,
     });
   },

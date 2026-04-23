@@ -8,7 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api } from "@/lib/api";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
+const num = (v: unknown, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+const fmtDate = (d: any) => {
+  if (!d) return "";
+  try { return new Date(d).toLocaleString(); } catch { return String(d); }
+};
+
 export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "admin" }) {
+  const isAdmin = kind === "admin";
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -29,7 +39,12 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
 
   return (
     <DashboardLayout kind={kind}>
-      <PageHeader title="SMS Logs" subtitle="Inspect individual sends with status, cost, and segments." />
+      <PageHeader
+        title="SMS Logs"
+        subtitle={isAdmin
+          ? "Every send across all customers — with provider cost, customer cost, and margin."
+          : "Inspect individual sends with status, cost, and segments."}
+      />
 
       <div className="ring-gradient glass rounded-2xl p-4 mb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
@@ -78,26 +93,35 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
                 <th className="text-left py-3 px-4">Direction</th>
                 <th className="text-left py-3 px-4">Message</th>
                 <th className="text-center py-3 px-4">Seg</th>
-                <th className="text-right py-3 px-4">Cost</th>
+                {isAdmin && <th className="text-right py-3 px-4">Provider</th>}
+                <th className="text-right py-3 px-4">{isAdmin ? "Customer" : "Cost"}</th>
+                {isAdmin && <th className="text-right py-3 px-4">Margin</th>}
                 <th className="text-left py-3 px-4">Status</th>
               </tr>
             </thead>
             <tbody>
-              {data.data.map((r: any) => (
-                <tr key={r.id} className="border-t border-border/50 hover:bg-card/40 transition-smooth">
-                  <td className="py-2.5 px-4 text-xs text-muted-foreground">#{r.id}</td>
-                  <td className="py-2.5 px-4 text-xs whitespace-nowrap">{r.date}</td>
-                  <td className="py-2.5 px-4 font-mono text-xs">{r.recipient}</td>
-                  <td className="py-2.5 px-4 text-xs">{r.sender_id}</td>
-                  <td className="py-2.5 px-4 text-xs text-muted-foreground">{r.direction}</td>
-                  <td className="py-2.5 px-4 max-w-[280px] truncate">{r.message}</td>
-                  <td className="py-2.5 px-4 text-center text-xs">{r.segments}</td>
-                  <td className="py-2.5 px-4 text-right text-xs">{r.cost?.toFixed(3)} €</td>
-                  <td className="py-2.5 px-4"><StatusBadge status={r.status} /></td>
-                </tr>
-              ))}
+              {data.data.map((r: any) => {
+                const customerCost = num(r.customer_cost ?? r.cost);
+                const providerCost = num(r.provider_cost);
+                const margin = num(r.margin, customerCost - providerCost);
+                return (
+                  <tr key={r.id} className="border-t border-border/50 hover:bg-card/40 transition-smooth">
+                    <td className="py-2.5 px-4 text-xs text-muted-foreground">#{r.id}</td>
+                    <td className="py-2.5 px-4 text-xs whitespace-nowrap">{fmtDate(r.date || r.created_at)}</td>
+                    <td className="py-2.5 px-4 font-mono text-xs">{r.recipient}</td>
+                    <td className="py-2.5 px-4 text-xs">{r.sender_id}</td>
+                    <td className="py-2.5 px-4 text-xs text-muted-foreground">{r.direction}</td>
+                    <td className="py-2.5 px-4 max-w-[280px] truncate">{r.message}</td>
+                    <td className="py-2.5 px-4 text-center text-xs">{num(r.segments)}</td>
+                    {isAdmin && <td className="py-2.5 px-4 text-right text-xs text-muted-foreground">{providerCost.toFixed(3)} €</td>}
+                    <td className="py-2.5 px-4 text-right text-xs text-secondary-glow">{customerCost.toFixed(3)} €</td>
+                    {isAdmin && <td className="py-2.5 px-4 text-right text-xs text-success">{margin.toFixed(3)} €</td>}
+                    <td className="py-2.5 px-4"><StatusBadge status={r.status} /></td>
+                  </tr>
+                );
+              })}
               {data.data.length === 0 && !loading && (
-                <tr><td colSpan={9}><EmptyState title="No logs found" description="Try adjusting filters or date range." /></td></tr>
+                <tr><td colSpan={isAdmin ? 11 : 9}><EmptyState title="No logs found" description="Try adjusting filters or date range." /></td></tr>
               )}
             </tbody>
           </table>

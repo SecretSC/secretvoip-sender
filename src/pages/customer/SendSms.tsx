@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { PageHeader, StatusBadge } from "@/components/ui-kit";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,16 @@ import RoutePicker, { defaultSelection, RouteSelection } from "@/components/sms/
 import { api } from "@/lib/api";
 import { estimateSegments, parseRecipients } from "@/lib/sms";
 import { toast } from "sonner";
-import { Send, Radar, Loader2, Calendar } from "lucide-react";
+import { Send, Radar, Loader2, Calendar, Wallet } from "lucide-react";
+
+const num = (v: unknown, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
+// Customer-facing per-segment estimate (already includes the 50% markup).
+// Real charge always uses the upstream cost returned by the API.
+const ESTIMATE_PER_SEGMENT_EUR = 0.021;
 
 export default function SendSms() {
   const [sender, setSender] = useState("SecretVoIP");
@@ -20,10 +29,29 @@ export default function SendSms() {
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [balance, setBalance] = useState<number>(0);
+
+  const refreshBalance = async () => {
+    try {
+      const r: any = await api.myWallet();
+      setBalance(num(r.balance_eur));
+    } catch {}
+  };
+  useEffect(() => { refreshBalance(); }, []);
 
   const list = useMemo(() => parseRecipients(recipients), [recipients]);
   const segments = useMemo(() => estimateSegments(message), [message]);
-  const estCost = useMemo(() => +(list.length * Math.max(1, segments) * 0.014).toFixed(3), [list, segments]);
+
+  // Estimate uses the gamma channel price when applicable, otherwise a default.
+  const perMsgPrice = useMemo(() => {
+    if (route.kind === "gamma" && route.gamma?.price) return num(route.gamma.price);
+    return ESTIMATE_PER_SEGMENT_EUR;
+  }, [route]);
+
+  const estCost = useMemo(
+    () => +(list.length * Math.max(1, segments) * perMsgPrice).toFixed(3),
+    [list, segments, perMsgPrice]
+  );
 
   const buildOptionId = () => {
     if (route.kind === "gamma") return route.gamma.option_id;
@@ -34,6 +62,7 @@ export default function SendSms() {
   const submit = async () => {
     if (list.length === 0) return toast.error("Add at least one recipient");
     if (!message.trim()) return toast.error("Message can't be empty");
+    if (balance <= 0) return toast.error("Insufficient balance. Top up your wallet to send SMS.");
     setLoading(true); setResult(null);
     try {
       const res: any = await api.sendSms({
@@ -43,9 +72,15 @@ export default function SendSms() {
         route_option_id: buildOptionId(),
       });
       setResult(res);
-      toast.success(`Sent ${res.sent}/${list.length} · ${res.total_cost?.toFixed(3)} €`);
-    } catch (e: any) { toast.error(e.message); }
-    finally { setLoading(false); }
+      const charged = num(res.total_cost);
+      const newBal = num(res.wallet_balance, balance - charged);
+      setBalance(newBal);
+      toast.success(`Sent ${num(res.sent)}/${list.length} · charged ${charged.toFixed(3)} €`);
+    } catch (e: any) {
+      toast.error(e.message);
+      // Pull fresh balance in case server returned 402
+      refreshBalance();
+    } finally { setLoading(false); }
   };
 
   const test = async () => {
@@ -55,6 +90,7 @@ export default function SendSms() {
       const res: any = await api.testRoutes({ to: list[0], message: message || "Route test", test_routes: [route.option_id] });
       setResult({ test: true, ...res });
       toast.success("Route test complete");
+      refreshBalance();
     } catch (e: any) { toast.error(e.message); }
     finally { setTesting(false); }
   };
@@ -109,9 +145,9 @@ export default function SendSms() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="hero" size="lg" onClick={submit} disabled={loading} className="flex-1">
+            <Button variant="hero" size="lg" onClick={submit} disabled={loading || balance <= 0} className="flex-1">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {loading ? "Sending…" : "Send SMS"}
+              {loading ? "Sending…" : balance <= 0 ? "Top up to send" : "Send SMS"}
             </Button>
             <Button variant="soft" size="lg" onClick={test} disabled={testing}>
               {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radar className="w-4 h-4" />}
@@ -122,6 +158,20 @@ export default function SendSms() {
 
         {/* Side summary */}
         <div className="space-y-5">
+          <div className="ring-gradient glass rounded-2xl p-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-secondary/15 ring-1 ring-secondary/30 flex items-center justify-center">
+                <Wallet className="w-5 h-5 text-secondary-glow" />
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-widest text-muted-foreground">Wallet balance</div>
+                <div className="font-display text-2xl mt-0.5">
+                  {num(balance).toFixed(2)} <span className="text-secondary-glow text-base">€</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="ring-gradient glass rounded-2xl p-5">
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Summary</div>
             <div className="mt-3 space-y-2 text-sm">
@@ -138,10 +188,10 @@ export default function SendSms() {
               {!result.test ? (
                 <div className="mt-2 space-y-2 text-sm">
                   <Row k="Status" v={<StatusBadge status={result.status} />} />
-                  <Row k="Sent" v={`${result.sent}`} />
-                  <Row k="Failed" v={`${result.failed}`} />
-                  <Row k="Total cost" v={`${result.total_cost?.toFixed(3)} €`} accent />
-                  <Row k="Wallet balance" v={`${result.wallet_balance?.toFixed(3)} €`} />
+                  <Row k="Sent" v={`${num(result.sent)}`} />
+                  <Row k="Failed" v={`${num(result.failed)}`} />
+                  <Row k="Charged" v={`${num(result.total_cost).toFixed(3)} €`} accent />
+                  <Row k="New balance" v={`${num(result.wallet_balance).toFixed(3)} €`} />
                 </div>
               ) : (
                 <div className="mt-3 space-y-2">
@@ -151,7 +201,7 @@ export default function SendSms() {
                         <StatusBadge status={r.status} />
                         <span className="text-sm font-mono">{r.route}</span>
                       </div>
-                      <div className="text-xs text-muted-foreground">{r.latency_ms}ms · {r.cost.toFixed(3)} €</div>
+                      <div className="text-xs text-muted-foreground">{num(r.latency_ms)}ms · {num(r.cost).toFixed(3)} €</div>
                     </div>
                   ))}
                 </div>
