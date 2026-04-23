@@ -334,12 +334,14 @@ export const mockApi = {
   async customerStats() {
     const m = me();
     const logs = read<any[]>(STORAGE.logs, []).filter((l) => !m || l.customer_id === m.id);
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
     return delay({
       sent: logs.length,
       delivered: logs.filter((l) => l.status === "delivered").length,
       failed: logs.filter((l) => l.status === "failed").length,
       routes: ROUTE_CATALOG.length,
       recent: logs.slice(0, 6),
+      balance_eur: m ? wallets[m.id] ?? 0 : 0,
     });
   },
 };
