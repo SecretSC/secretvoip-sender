@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { KeyRound, Plus, Trash2, UserCog } from "lucide-react";
+import { KeyRound, Plus, Trash2, UserCog, Wallet } from "lucide-react";
+import TopUpDialog from "@/components/admin/TopUpDialog";
 
 export default function Customers() {
   const [list, setList] = useState<any[]>([]);
