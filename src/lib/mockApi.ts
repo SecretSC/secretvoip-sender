@@ -21,11 +21,22 @@ const STORAGE = {
   logs: "svp_logs",
   audit: "svp_audit",
   me: "svp_me",
+  wallets: "svp_wallets",        // { [userId]: number }
+  walletTx: "svp_wallet_tx",     // { [userId]: Tx[] }
 };
 
 // Bump this whenever we want to wipe stale demo data from existing browsers.
-const SEED_VERSION = "2";
+const SEED_VERSION = "3";
 const SEED_VERSION_KEY = "svp_seed_version";
+
+type WalletTx = {
+  id: string;
+  at: string;
+  amount_eur: number;
+  type: "topup" | "adjustment" | "charge" | "refund";
+  note?: string;
+  created_by?: string;
+};
 
 function read<T>(key: string, fallback: T): T {
   try {
