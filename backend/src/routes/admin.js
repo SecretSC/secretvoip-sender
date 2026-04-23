@@ -89,9 +89,12 @@ r.post("/customers", async (req, res, next) => {
        RETURNING id, email, username, name, status, created_at`,
       [data.email, data.username, data.name, hash, data.mustChangePassword ?? true]
     );
+    await pool.query(
+      `INSERT INTO customer_profiles (user_id, balance_eur) VALUES ($1, 0)
+       ON CONFLICT (user_id) DO NOTHING`, [rows[0].id]);
     await pool.query("INSERT INTO audit_logs (actor, action, target, meta) VALUES ($1,'user.create',$2,$3)",
       [req.user.email, rows[0].id, data.email]);
-    res.json(rows[0]);
+    res.json({ ...rows[0], balance_eur: 0 });
   } catch (e) { next(e); }
 });
 
