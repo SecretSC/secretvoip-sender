@@ -23,6 +23,10 @@ const STORAGE = {
   me: "svp_me",
 };
 
+// Bump this whenever we want to wipe stale demo data from existing browsers.
+const SEED_VERSION = "2";
+const SEED_VERSION_KEY = "svp_seed_version";
+
 function read<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
