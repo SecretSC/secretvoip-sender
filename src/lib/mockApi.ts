@@ -236,7 +236,40 @@ export const mockApi = {
   // ---- Admin ----
   async customers() {
     const users = read<User[]>(STORAGE.users, []);
-    return delay(users.filter((u) => u.role === "customer").map((u) => ({ ...u, password: undefined })));
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    return delay(
+      users
+        .filter((u) => u.role === "customer")
+        .map((u) => ({ ...u, password: undefined, balance_eur: wallets[u.id] ?? 0 }))
+    );
+  },
+
+  // ---- Wallet / manual top-up ----
+  async customerWallet(id: string) {
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    return delay({ balance_eur: wallets[id] ?? 0, transactions: tx[id] ?? [] });
+  },
+  async topUpCustomer(id: string, amount_eur: number, note?: string, type: WalletTx["type"] = "topup") {
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    const m = me();
+    const next = +(((wallets[id] ?? 0) + amount_eur).toFixed(4));
+    wallets[id] = next;
+    const list = tx[id] ?? [];
+    list.unshift({ id: uid(), at: now(), amount_eur, type, note, created_by: m?.email });
+    tx[id] = list.slice(0, 100);
+    write(STORAGE.wallets, wallets);
+    write(STORAGE.walletTx, tx);
+    audit(m?.email || "system", "wallet.topup", id, JSON.stringify({ amount: amount_eur, type, note }));
+    return delay({ ok: true, balance_eur: next });
+  },
+  async myWallet() {
+    const m = me();
+    if (!m) return { balance_eur: 0, transactions: [] };
+    const wallets = read<Record<string, number>>(STORAGE.wallets, {});
+    const tx = read<Record<string, WalletTx[]>>(STORAGE.walletTx, {});
+    return delay({ balance_eur: wallets[m.id] ?? 0, transactions: tx[m.id] ?? [] });
   },
   async createCustomer(payload: { name: string; email: string; username: string; password: string; mustChangePassword?: boolean }) {
     const users = read<User[]>(STORAGE.users, []);
