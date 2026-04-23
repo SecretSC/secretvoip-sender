@@ -11,9 +11,69 @@ r.use(authRequired, requireRole("admin"));
 r.get("/customers", async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, username, name, status, created_at FROM users WHERE role='customer' ORDER BY created_at DESC`);
+      `SELECT u.id, u.email, u.username, u.name, u.status, u.created_at,
+              COALESCE(cp.balance_eur, 0) AS balance_eur
+         FROM users u
+         LEFT JOIN customer_profiles cp ON cp.user_id = u.id
+        WHERE u.role='customer'
+        ORDER BY u.created_at DESC`);
     res.json(rows);
   } catch (e) { next(e); }
+});
+
+// ---------- Wallet / manual top-up ----------
+r.get("/customers/:id/wallet", async (req, res, next) => {
+  try {
+    const { rows: bal } = await pool.query(
+      `SELECT COALESCE(balance_eur,0) AS balance_eur FROM customer_profiles WHERE user_id=$1`,
+      [req.params.id]
+    );
+    const { rows: tx } = await pool.query(
+      `SELECT id, amount_eur, type, note, created_by, created_at
+         FROM wallet_transactions WHERE customer_id=$1
+         ORDER BY created_at DESC LIMIT 50`,
+      [req.params.id]
+    );
+    res.json({ balance_eur: bal[0]?.balance_eur ?? 0, transactions: tx });
+  } catch (e) { next(e); }
+});
+
+r.post("/customers/:id/topup", async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const data = z.object({
+      amount_eur: z.number().refine((n) => n !== 0, "Amount cannot be zero"),
+      type: z.enum(["topup", "adjustment", "charge", "refund"]).default("topup"),
+      note: z.string().max(500).optional(),
+    }).parse(req.body);
+
+    await client.query("BEGIN");
+    // Make sure profile exists
+    await client.query(
+      `INSERT INTO customer_profiles (user_id, balance_eur)
+       VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`,
+      [req.params.id]
+    );
+    const { rows } = await client.query(
+      `UPDATE customer_profiles
+          SET balance_eur = balance_eur + $1
+        WHERE user_id = $2
+        RETURNING balance_eur`,
+      [data.amount_eur, req.params.id]
+    );
+    await client.query(
+      `INSERT INTO wallet_transactions (customer_id, amount_eur, type, note, created_by)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [req.params.id, data.amount_eur, data.type, data.note || null, req.user.email]
+    );
+    await client.query(
+      `INSERT INTO audit_logs (actor, action, target, meta) VALUES ($1,'wallet.topup',$2,$3)`,
+      [req.user.email, req.params.id, JSON.stringify({ amount: data.amount_eur, type: data.type, note: data.note })]
+    );
+    await client.query("COMMIT");
+    res.json({ ok: true, balance_eur: rows[0].balance_eur });
+  } catch (e) { await client.query("ROLLBACK").catch(() => {}); next(e); }
+  finally { client.release(); }
 });
 
 r.post("/customers", async (req, res, next) => {
