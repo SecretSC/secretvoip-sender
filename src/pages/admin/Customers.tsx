@@ -16,6 +16,7 @@ export default function Customers() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", mustChangePassword: true });
+  const [topUpFor, setTopUpFor] = useState<any | null>(null);
 
   const load = () => api.customers().then((r: any) => setList(r));
   useEffect(() => { load(); }, []);
