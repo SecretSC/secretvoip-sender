@@ -82,7 +82,7 @@ export default function AdminDiagnostics() {
       <PageHeader
         title="Route Diagnostics"
         subtitle="Verify upstream connectivity, detected route families and probe a single live SMS."
-        right={
+        actions={
           <Button variant="soft" size="sm" onClick={refresh} disabled={loading}>
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Refresh
