@@ -232,10 +232,20 @@ export const mockApi = {
     });
   },
 
+  async markup() {
+    return delay({
+      multiplier: 1.5,
+      percent: 50,
+      flat_routes: { alpha: 0.09, beta: 0.09, epsilon: 0.09 },
+    });
+  },
+
   async testRoutes(payload: any) {
-    const tested: string[] = payload.test_all_routes
-      ? ROUTE_CATALOG.map((r) => r.option_id)
-      : payload.test_routes || [];
+    const tested: string[] = Array.isArray(payload.routes) && payload.routes.length
+      ? payload.routes
+      : payload.test_all_routes
+        ? ROUTE_CATALOG.map((r) => r.option_id)
+        : payload.test_routes || [];
     const m = me();
     if (m) audit(m.email, "sms.route_test", payload.to, `routes=${tested.join(",")}`);
     return delay({
@@ -244,7 +254,7 @@ export const mockApi = {
         route: r,
         status: Math.random() > 0.15 ? "delivered" : Math.random() > 0.5 ? "sent" : "failed",
         latency_ms: 200 + Math.floor(Math.random() * 1500),
-        cost: +(0.01 + Math.random() * 0.05).toFixed(3),
+        cost: +(0.06 * 1.5).toFixed(3),
       })),
     });
   },
