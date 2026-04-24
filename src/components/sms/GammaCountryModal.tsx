@@ -1,12 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { GAMMA_COUNTRIES, GammaChannel } from "@/lib/routes";
-import { Search, Globe2, ChevronDown } from "lucide-react";
+import { GAMMA_COUNTRIES, GammaChannel, GammaCountry } from "@/lib/routes";
+import { Search, Globe2, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 export type GammaSelection = { option_id: string; label: string; price: number };
+
+const num = (v: unknown, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
 export default function GammaCountryModal({
   open, onOpenChange, onSelect, value,
@@ -18,14 +23,67 @@ export default function GammaCountryModal({
 }) {
   const [q, setQ] = useState("");
   const [openCountry, setOpenCountry] = useState<string | null>(null);
+  const [countries, setCountries] = useState<GammaCountry[]>(GAMMA_COUNTRIES);
+  const [loading, setLoading] = useState(false);
+
+  // Pull live customer-marked-up prices from backend the first time the modal opens.
+  useEffect(() => {
+    if (!open) return;
+    let cancel = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const data: any = await api.routes(true);
+        if (cancel) return;
+        const live = data?.gamma_by_country;
+        if (live && typeof live === "object") {
+          const merged: GammaCountry[] = GAMMA_COUNTRIES.map((c) => {
+            const liveCh = Array.isArray(live?.[c.country]) ? live[c.country] : null;
+            return {
+              ...c,
+              channels: (liveCh || c.channels).map((ch: any) => ({
+                option_id: ch.option_id,
+                name: ch.name,
+                price: num(ch.price),
+              })),
+            };
+          });
+          setCountries(merged);
+        } else {
+          // Fallback: apply 1.5x to seed provider prices client-side so customer
+          // never sees raw provider rates if backend is unreachable.
+          const mult = num(data?.markup_multiplier, 1.5);
+          setCountries(GAMMA_COUNTRIES.map((c) => ({
+            ...c,
+            channels: c.channels.map((ch) => ({
+              ...ch,
+              price: +(num(ch.price) * mult).toFixed(4),
+            })),
+          })));
+        }
+      } catch {
+        // Network error → still show 1.5x marked up prices, never raw provider prices.
+        setCountries(GAMMA_COUNTRIES.map((c) => ({
+          ...c,
+          channels: c.channels.map((ch) => ({
+            ...ch,
+            price: +(num(ch.price) * 1.5).toFixed(4),
+          })),
+        })));
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [open]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return GAMMA_COUNTRIES;
-    return GAMMA_COUNTRIES.filter(
+    if (!needle) return countries;
+    return countries.filter(
       (c) => c.country.toLowerCase().includes(needle) || c.dial.includes(needle) || c.iso.toLowerCase().includes(needle)
     );
-  }, [q]);
+  }, [q, countries]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -42,13 +100,18 @@ export default function GammaCountryModal({
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search country, ISO or dial code…" className="pl-9" />
           </div>
+          {loading && (
+            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading live pricing…
+            </div>
+          )}
         </div>
 
         <div className="px-6 pb-6 mt-3 overflow-y-auto" style={{ maxHeight: "60vh" }}>
           <div className="space-y-2">
             {filtered.map((c) => {
               const isOpen = openCountry === c.country;
-              const prices = c.channels.map((ch) => Number(ch.price) || 0);
+              const prices = c.channels.map((ch) => num(ch.price));
               const min = prices.length ? Math.min(...prices) : 0;
               const max = prices.length ? Math.max(...prices) : 0;
               return (
@@ -68,7 +131,7 @@ export default function GammaCountryModal({
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-xs text-muted-foreground hidden sm:block">
-                        {min === max ? `${min.toFixed(2)} €` : `${min.toFixed(2)} – ${max.toFixed(2)} €`}
+                        {min === max ? `${num(min).toFixed(2)} €` : `${num(min).toFixed(2)} – ${num(max).toFixed(2)} €`}
                       </div>
                       <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
                     </div>
@@ -82,7 +145,7 @@ export default function GammaCountryModal({
                           country={c.country}
                           selected={value?.option_id === ch.option_id}
                           onClick={() => {
-                            onSelect({ option_id: ch.option_id, label: `${c.country} · ${ch.name}`, price: ch.price });
+                            onSelect({ option_id: ch.option_id, label: `${c.country} · ${ch.name}`, price: num(ch.price) });
                             onOpenChange(false);
                           }}
                         />
@@ -113,7 +176,7 @@ function ChannelChip({ ch, selected, onClick }: { ch: GammaChannel; country: str
     >
       <div className="flex items-center justify-between">
         <div className="font-mono text-sm">{ch.name}</div>
-        <div className="text-xs text-secondary-glow font-medium">{(Number(ch.price) || 0).toFixed(2)} €</div>
+        <div className="text-xs text-secondary-glow font-medium">{num(ch.price).toFixed(2)} €</div>
       </div>
     </button>
   );
