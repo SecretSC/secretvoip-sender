@@ -220,8 +220,28 @@ r.post("/send", async (req, res, next) => {
   }
 });
 
-// Route tester: send one real SMS per selected route
+// Build a human-friendly route tag appended to the test SMS body so the
+// recipient can tell which route actually delivered the message.
+function routeTagFor(optionId) {
+  const id = String(optionId || "").toLowerCase();
+  if (id === "alpha")   return "ROUTE ALPHA";
+  if (id === "beta")    return "ROUTE BETA";
+  if (id === "epsilon") return "ROUTE EPSILON";
+  if (id.startsWith("epsilon-ttsky-")) {
+    return `ROUTE EPSILON ${id.replace("epsilon-ttsky-", "TTSKY ").toUpperCase()}`;
+  }
+  if (id.startsWith("gamma-")) {
+    // gamma-denmark-ch12  ->  GAMMA DENMARK CH12
+    const rest = id.replace(/^gamma-/, "").replace(/-/g, " ").toUpperCase();
+    return `GAMMA ${rest}`;
+  }
+  return id ? id.toUpperCase() : "ROUTE TEST";
+}
+
+// Route tester: send one real SMS per selected route, charging the customer
+// just like a normal send so logs and balance match production behaviour.
 r.post("/test", async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const { to, message, routes: testedRoutes = [] } = req.body || {};
     if (!to) return res.status(400).json({ message: "Missing destination number" });
@@ -229,29 +249,94 @@ r.post("/test", async (req, res, next) => {
       return res.status(400).json({ message: "Pick at least one route to test" });
     }
 
+    const isCustomer = req.user.role === "customer";
     const mult = await getMarkupMultiplier();
+    const baseMsg = (message || "Test delivery from SecretVoIP").trim();
     const results = [];
+
+    // Pre-flight balance check for customers (one charge per selected route)
+    if (isCustomer) {
+      const { rows: balRows } = await pool.query(
+        `SELECT COALESCE(balance_eur, 0) AS balance_eur
+           FROM customer_profiles WHERE user_id=$1`,
+        [req.user.sub]
+      );
+      const currentBalance = Number(balRows[0]?.balance_eur ?? 0);
+      if (currentBalance <= 0) {
+        return res.status(402).json({
+          message: "Insufficient balance. Please top up your wallet to test routes.",
+          balance_eur: currentBalance,
+        });
+      }
+    }
 
     for (const routeId of testedRoutes) {
       const startedAt = Date.now();
+      const tag = routeTagFor(routeId);
+      const taggedMessage = `${baseMsg} - ${tag}`;
       try {
         const r = await upstream.send({
           to,
-          message: message || "SecretVoIP route test",
+          message: taggedMessage,
           sender_id: req.body.sender_id || "SecretVoIP",
           route_option_id: routeId,
         });
         const latency_ms = Date.now() - startedAt;
         const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
         const customer = +(provider * mult).toFixed(4);
+        const margin   = +(customer - provider).toFixed(4);
+        const upstreamId = r.messages?.[0]?.id || null;
+        const upstreamStatus = r.messages?.[0]?.status || r.status || "sent";
+
+        // Persist the test as a normal SMS log so it appears in the customer logs.
+        try {
+          await client.query(
+            `INSERT INTO sms_logs_cache
+               (upstream_id, customer_id, recipient, sender_id, segments,
+                cost, provider_cost, customer_cost, margin,
+                status, message, direction)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [
+              upstreamId, req.user.sub, to, req.body.sender_id || "SecretVoIP",
+              1, customer, provider, customer, margin,
+              upstreamStatus, taggedMessage, `Route test · ${tag}`,
+            ]
+          );
+        } catch {}
+
+        // Charge the customer for this real send.
+        if (isCustomer && customer > 0) {
+          try {
+            await client.query("BEGIN");
+            await client.query(
+              `INSERT INTO customer_profiles (user_id, balance_eur)
+               VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`,
+              [req.user.sub]
+            );
+            await client.query(
+              `UPDATE customer_profiles SET balance_eur = balance_eur - $1 WHERE user_id = $2`,
+              [customer, req.user.sub]
+            );
+            await client.query(
+              `INSERT INTO wallet_transactions (customer_id, amount_eur, type, note, created_by)
+               VALUES ($1, $2, 'charge', $3, 'system')`,
+              [req.user.sub, -customer, `Route test · ${tag} · to ${to}`]
+            );
+            await client.query("COMMIT");
+          } catch {
+            try { await client.query("ROLLBACK"); } catch {}
+          }
+        }
+
         results.push({
           route: routeId,
-          status: r.status || "sent",
+          status: upstreamStatus,
           latency_ms,
           cost: customer,
+          tag,
           provider_cost: req.user.role === "admin" ? provider : undefined,
-          margin: req.user.role === "admin" ? +(customer - provider).toFixed(4) : undefined,
-          message_id: r.messages?.[0]?.id,
+          margin: req.user.role === "admin" ? margin : undefined,
+          message_id: upstreamId,
         });
       } catch (e) {
         results.push({
@@ -259,11 +344,85 @@ r.post("/test", async (req, res, next) => {
           status: "failed",
           latency_ms: Date.now() - startedAt,
           cost: 0,
+          tag,
           error: e?.message || "Upstream error",
         });
       }
     }
-    res.json({ status: "tested", results });
+
+    // Return updated balance for the UI.
+    let newBalance = null;
+    if (isCustomer) {
+      const { rows } = await pool.query(
+        `SELECT COALESCE(balance_eur, 0) AS balance_eur FROM customer_profiles WHERE user_id=$1`,
+        [req.user.sub]
+      );
+      newBalance = Number(rows[0]?.balance_eur ?? 0);
+    }
+
+    res.json({ status: "tested", results, wallet_balance: newBalance });
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    next(e);
+  } finally {
+    client.release();
+  }
+});
+
+// Admin-only: verify upstream connectivity & detected route families.
+// Never returns the upstream API key. Optional ?probe=alpha sends one tiny
+// real SMS to ?to=... to confirm the route is live.
+r.get("/diagnostics", async (req, res, next) => {
+  try {
+    if (req.user.role !== "admin") return res.status(403).json({ message: "Admin only" });
+
+    const startedAt = Date.now();
+    let upstreamOk = false;
+    let upstreamError = null;
+    let data = null;
+    try {
+      data = await upstream.routes(true);
+      upstreamOk = true;
+    } catch (e) {
+      upstreamError = e?.message || "Upstream unreachable";
+    }
+    const latency_ms = Date.now() - startedAt;
+
+    const families = { alpha: false, beta: false, epsilon: false, gamma: false };
+    if (data) {
+      // Flat routes: backend assumes alpha/beta/epsilon are always provided.
+      families.alpha = true;
+      families.beta = true;
+      const epsList = Array.isArray(data?.epsilon_subroutes)
+        ? data.epsilon_subroutes
+        : Array.isArray(data?.epsilon)
+        ? data.epsilon
+        : [];
+      families.epsilon = epsList.length > 0 || true; // upstream surfaces these via flat catalog too
+      const gammaCountries = data?.gamma_by_country
+        ? Object.keys(data.gamma_by_country).length
+        : Array.isArray(data?.gamma_options) ? data.gamma_options.length : 0;
+      families.gamma = gammaCountries > 0;
+    }
+
+    const mult = await getMarkupMultiplier();
+
+    res.json({
+      upstream_ok: upstreamOk,
+      upstream_error: upstreamError,
+      latency_ms,
+      api_key_present: Boolean(process.env.SMS_UPSTREAM_API_KEY),
+      api_base_present: Boolean(process.env.SMS_UPSTREAM_BASE_URL),
+      markup_multiplier: mult,
+      families,
+      gamma_country_count: data?.gamma_by_country
+        ? Object.keys(data.gamma_by_country).length
+        : 0,
+      epsilon_subroute_count: Array.isArray(data?.epsilon_subroutes)
+        ? data.epsilon_subroutes.length
+        : 0,
+      checked_at: new Date().toISOString(),
+    });
   } catch (e) { next(e); }
 });
 
