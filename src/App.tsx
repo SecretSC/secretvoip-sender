@@ -17,6 +17,7 @@ import RouteTester from "./pages/customer/RouteTester";
 import RoutesAndRates from "./pages/customer/RoutesAndRates";
 import SmsLogs from "./pages/customer/SmsLogs";
 import Profile from "./pages/customer/Profile";
+import Help from "./pages/customer/Help";
 
 import AdminOverview from "./pages/admin/Overview";
 import Customers from "./pages/admin/Customers";
@@ -46,6 +47,7 @@ const App = () => (
             <Route path="/app/routes" element={<ProtectedRoute role="customer"><RoutesAndRates kind="customer" /></ProtectedRoute>} />
             <Route path="/app/logs" element={<ProtectedRoute role="customer"><SmsLogs kind="customer" /></ProtectedRoute>} />
             <Route path="/app/profile" element={<ProtectedRoute role="customer"><Profile /></ProtectedRoute>} />
+            <Route path="/app/help" element={<ProtectedRoute role="customer"><Help kind="customer" /></ProtectedRoute>} />
 
             {/* Admin */}
             <Route path="/admin" element={<ProtectedRoute role="admin"><AdminOverview /></ProtectedRoute>} />
@@ -53,6 +55,7 @@ const App = () => (
             <Route path="/admin/routes" element={<ProtectedRoute role="admin"><RoutesAndRates kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/logs" element={<ProtectedRoute role="admin"><SmsLogs kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/audit" element={<ProtectedRoute role="admin"><AuditLog /></ProtectedRoute>} />
+            <Route path="/admin/help" element={<ProtectedRoute role="admin"><Help kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
 
             <Route path="/dashboard" element={<Navigate to="/app" replace />} />

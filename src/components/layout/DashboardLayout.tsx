@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Send, Radar, Map, FileText, ScrollText, Settings, Users,
-  LogOut, ShieldCheck, User as UserIcon, Zap,
+  LogOut, ShieldCheck, User as UserIcon, Zap, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ const adminItems: Item[] = [
   { to: "/admin/routes", label: "Routes & Rates", icon: Map },
   { to: "/admin/logs", label: "SMS Logs", icon: FileText },
   { to: "/admin/audit", label: "Audit Log", icon: ScrollText },
+  { to: "/admin/help", label: "Help & Guide", icon: HelpCircle },
   { to: "/admin/settings", label: "Settings", icon: Settings },
 ];
 const customerItems: Item[] = [
@@ -23,6 +24,7 @@ const customerItems: Item[] = [
   { to: "/app/tester", label: "Route Tester", icon: Radar },
   { to: "/app/routes", label: "Routes & Rates", icon: Map },
   { to: "/app/logs", label: "SMS Logs", icon: FileText },
+  { to: "/app/help", label: "Help & Guide", icon: HelpCircle },
   { to: "/app/profile", label: "Profile", icon: UserIcon },
 ];
 
