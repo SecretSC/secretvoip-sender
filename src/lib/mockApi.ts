@@ -395,4 +395,18 @@ export const mockApi = {
       balance_eur: m ? wallets[m.id] ?? 0 : 0,
     });
   },
+  async diagnostics() {
+    return delay({
+      upstream_ok: true,
+      upstream_error: null,
+      latency_ms: 120,
+      api_key_present: true,
+      api_base_present: true,
+      markup_multiplier: 1.5,
+      families: { alpha: true, beta: true, epsilon: true, gamma: true },
+      gamma_country_count: 31,
+      epsilon_subroute_count: 13,
+      checked_at: new Date().toISOString(),
+    });
+  },
 };
