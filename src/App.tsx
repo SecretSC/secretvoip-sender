@@ -23,6 +23,7 @@ import AdminOverview from "./pages/admin/Overview";
 import Customers from "./pages/admin/Customers";
 import AuditLog from "./pages/admin/AuditLog";
 import AdminSettings from "./pages/admin/Settings";
+import AdminDiagnostics from "./pages/admin/Diagnostics";
 
 const queryClient = new QueryClient();
 const basename = (import.meta.env.VITE_APP_BASE_PATH as string | undefined) || "/";
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="/admin/routes" element={<ProtectedRoute role="admin"><RoutesAndRates kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/logs" element={<ProtectedRoute role="admin"><SmsLogs kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/audit" element={<ProtectedRoute role="admin"><AuditLog /></ProtectedRoute>} />
+            <Route path="/admin/diagnostics" element={<ProtectedRoute role="admin"><AdminDiagnostics /></ProtectedRoute>} />
             <Route path="/admin/help" element={<ProtectedRoute role="admin"><Help kind="admin" /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute role="admin"><AdminSettings /></ProtectedRoute>} />
 
