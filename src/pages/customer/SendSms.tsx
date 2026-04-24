@@ -261,8 +261,9 @@ export default function SendSms() {
               {loading ? `Sending… ${progress.done}/${progress.total}` : balance <= 0 ? "Top up to send" : "Send SMS"}
             </Button>
             {loading && (
-              <Button variant="soft" size="lg" onClick={cancel}>
-                Stop
+              <Button variant="soft" size="lg" disabled aria-disabled="true">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Sending…
               </Button>
             )}
           </div>
