@@ -50,8 +50,12 @@ export const api = {
     USE_MOCK ? mockApi.sendSms(payload) : request("/sms/send", { method: "POST", body: JSON.stringify(payload) }),
   routes: (expandGamma = true) =>
     USE_MOCK ? mockApi.routes(expandGamma) : request(`/sms/available-routes${expandGamma ? "?expand=gamma" : ""}`),
+  routesAdmin: (expandGamma = true) =>
+    USE_MOCK ? mockApi.routes(expandGamma) : request(`/sms/available-routes?raw=1${expandGamma ? "&expand=gamma" : ""}`),
+  markup: () =>
+    USE_MOCK ? mockApi.markup() : request("/sms/markup"),
   testRoutes: (payload: any) =>
-    USE_MOCK ? mockApi.testRoutes(payload) : request("/sms/send", { method: "POST", body: JSON.stringify(payload) }),
+    USE_MOCK ? mockApi.testRoutes(payload) : request("/sms/test", { method: "POST", body: JSON.stringify(payload) }),
   logs: (params: { page?: number; limit?: number; search?: string; from?: string; to?: string; status?: string; customer_id?: string } = {}) =>
     USE_MOCK ? mockApi.logs(params) : request(`/sms/logs?${new URLSearchParams(params as any).toString()}`),
 
