@@ -82,4 +82,5 @@ export const api = {
   auditLog: () => USE_MOCK ? mockApi.auditLog() : request("/admin/audit"),
   stats: () => USE_MOCK ? mockApi.stats() : request("/admin/stats"),
   customerStats: () => USE_MOCK ? mockApi.customerStats() : request("/me/stats"),
+  diagnostics: () => USE_MOCK ? mockApi.diagnostics() : request("/sms/diagnostics"),
 };
