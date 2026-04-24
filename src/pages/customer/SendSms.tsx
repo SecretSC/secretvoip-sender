@@ -88,10 +88,19 @@ export default function SendSms() {
     return route.option_id;
   };
 
+  const CONCURRENCY = 5;
+
   const submit = async () => {
     if (list.length === 0) return toast.error("Add at least one recipient");
     if (!message.trim()) return toast.error("Message can't be empty");
     if (balance <= 0) return toast.error("Insufficient balance. Top up your wallet to send SMS.");
+
+    // Pre-flight: warn if estimated cost exceeds balance
+    if (estCost > balance) {
+      toast.warning(
+        `Estimated cost ${estCost.toFixed(3)} € exceeds balance ${balance.toFixed(2)} €. Sending will stop when balance runs out.`
+      );
+    }
 
     setLoading(true);
     setSummary(null);
@@ -103,11 +112,20 @@ export default function SendSms() {
     setProgress({ done: 0, total });
 
     let sent = 0, failed = 0, charged = 0, runningBalance = balance;
+    let doneCount = 0;
     const optionId = buildOptionId();
 
-    for (let i = 0; i < list.length; i++) {
-      if (cancelRef.current) break;
-      const recipient = list[i];
+    const sendOne = async (recipient: string, idx: number) => {
+      if (cancelRef.current) {
+        setPerResults((prev) => {
+          const next = [...prev];
+          if (next[idx]?.status === "pending") {
+            next[idx] = { recipient, status: "failed", cost: 0, error: "Cancelled" };
+          }
+          return next;
+        });
+        return;
+      }
       try {
         const res: any = await api.sendSms({
           to: recipient,
@@ -117,15 +135,19 @@ export default function SendSms() {
         });
         const cost = num(res.total_cost);
         const ok = (res.status || "sent") !== "failed" && num(res.failed) === 0;
-        runningBalance = num(res.wallet_balance, runningBalance - cost);
+        if (typeof res.wallet_balance !== "undefined") {
+          runningBalance = num(res.wallet_balance, runningBalance);
+        } else if (ok) {
+          runningBalance = runningBalance - cost;
+        }
         if (ok) sent++; else failed++;
-        charged += cost;
+        if (ok) charged += cost;
         setPerResults((prev) => {
           const next = [...prev];
-          next[i] = {
+          next[idx] = {
             recipient,
             status: ok ? (res.messages?.[0]?.status || "sent") : "failed",
-            cost,
+            cost: ok ? cost : 0,
           };
           return next;
         });
@@ -133,19 +155,39 @@ export default function SendSms() {
         failed++;
         setPerResults((prev) => {
           const next = [...prev];
-          next[i] = { recipient, status: "failed", cost: 0, error: e?.message };
+          next[idx] = { recipient, status: "failed", cost: 0, error: e?.message };
           return next;
         });
         if (/insufficient/i.test(e?.message || "")) {
-          // Stop the loop — no point continuing without balance
+          // Stop further dispatch — wallet exhausted
           cancelRef.current = true;
-          toast.error(e.message);
-          break;
         }
       } finally {
-        setProgress({ done: i + 1, total });
+        doneCount++;
+        setProgress({ done: doneCount, total });
         setBalance(runningBalance);
       }
+    };
+
+    // Process in batches of CONCURRENCY
+    for (let i = 0; i < list.length; i += CONCURRENCY) {
+      if (cancelRef.current) {
+        // Mark remaining as failed/cancelled
+        const remaining = list.slice(i);
+        setPerResults((prev) => {
+          const next = [...prev];
+          remaining.forEach((r, k) => {
+            const idx = i + k;
+            if (next[idx]?.status === "pending") {
+              next[idx] = { recipient: r, status: "failed", cost: 0, error: "Stopped (insufficient balance)" };
+            }
+          });
+          return next;
+        });
+        break;
+      }
+      const batch = list.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map((recipient, k) => sendOne(recipient, i + k)));
     }
 
     setLoading(false);
@@ -157,8 +199,6 @@ export default function SendSms() {
     refreshBalance();
     toast.success(`Done · ${sent} sent · ${failed} failed · ${charged.toFixed(3)} € charged`);
   };
-
-  const cancel = () => { cancelRef.current = true; };
 
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
 
