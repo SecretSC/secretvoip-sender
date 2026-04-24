@@ -6,7 +6,17 @@ import { pool } from "../db.js";
 const r = Router();
 r.use(authRequired);
 
-// Get current reseller markup (e.g. 1.5 for 50%). Defaults to 50% if not set.
+// ---- Single source of truth for pricing ----
+//
+// Provider (upstream) base prices for the FLAT routes. These are NOT exposed
+// to the customer — we always multiply by the reseller markup before display.
+// Gamma prices come from the upstream API per channel.
+const FLAT_PROVIDER_PRICE_EUR = {
+  alpha: 0.06,
+  beta: 0.06,
+  epsilon: 0.06,
+};
+
 async function getMarkupMultiplier() {
   try {
     const { rows } = await pool.query(
@@ -18,10 +28,39 @@ async function getMarkupMultiplier() {
   return 1.5;
 }
 
+async function providerPriceFor(optionId) {
+  if (!optionId) return null;
+  const id = String(optionId).toLowerCase();
+  if (id === "alpha") return FLAT_PROVIDER_PRICE_EUR.alpha;
+  if (id === "beta") return FLAT_PROVIDER_PRICE_EUR.beta;
+  if (id === "epsilon" || id.startsWith("epsilon-")) return FLAT_PROVIDER_PRICE_EUR.epsilon;
+
+  if (id.startsWith("gamma-")) {
+    try {
+      const data = await upstream.routes(true);
+      const list = Array.isArray(data?.gamma_options)
+        ? data.gamma_options
+        : Object.values(data?.gamma_by_country || {}).flat();
+      const hit = list.find((c) => String(c.option_id || "").toLowerCase() === id);
+      if (hit && Number.isFinite(Number(hit.price))) return Number(hit.price);
+    } catch {}
+  }
+  return null;
+}
+
+// Public: markup multiplier + flat route customer prices
 r.get("/markup", async (_req, res, next) => {
   try {
     const mult = await getMarkupMultiplier();
-    res.json({ multiplier: mult, percent: +((mult - 1) * 100).toFixed(2) });
+    res.json({
+      multiplier: mult,
+      percent: +((mult - 1) * 100).toFixed(2),
+      flat_routes: {
+        alpha:   +(FLAT_PROVIDER_PRICE_EUR.alpha   * mult).toFixed(4),
+        beta:    +(FLAT_PROVIDER_PRICE_EUR.beta    * mult).toFixed(4),
+        epsilon: +(FLAT_PROVIDER_PRICE_EUR.epsilon * mult).toFixed(4),
+      },
+    });
   } catch (e) { next(e); }
 });
 
@@ -31,8 +70,6 @@ r.get("/available-routes", async (req, res, next) => {
     const data = await upstream.routes(expand);
     const mult = await getMarkupMultiplier();
 
-    // Apply customer markup to all visible prices for non-admin callers.
-    // Admin can pass ?raw=1 to also see provider prices alongside.
     const isAdmin = req.user?.role === "admin";
     const wantsRaw = isAdmin && req.query.raw === "1";
 
@@ -54,7 +91,16 @@ r.get("/available-routes", async (req, res, next) => {
         price: markPrice(c.price),
       }));
     }
-    res.json({ ...data, markup_multiplier: mult });
+
+    res.json({
+      ...data,
+      markup_multiplier: mult,
+      flat_routes: {
+        alpha:   { customer_price: markPrice(FLAT_PROVIDER_PRICE_EUR.alpha),   provider_price: wantsRaw ? FLAT_PROVIDER_PRICE_EUR.alpha   : undefined },
+        beta:    { customer_price: markPrice(FLAT_PROVIDER_PRICE_EUR.beta),    provider_price: wantsRaw ? FLAT_PROVIDER_PRICE_EUR.beta    : undefined },
+        epsilon: { customer_price: markPrice(FLAT_PROVIDER_PRICE_EUR.epsilon), provider_price: wantsRaw ? FLAT_PROVIDER_PRICE_EUR.epsilon : undefined },
+      },
+    });
   } catch (e) { next(e); }
 });
 
@@ -64,7 +110,6 @@ r.post("/send", async (req, res, next) => {
     const isCustomer = req.user.role === "customer";
     const mult = await getMarkupMultiplier();
 
-    // ---- 1) Pre-flight: check customer balance (customers only) ----
     if (isCustomer) {
       const { rows: balRows } = await pool.query(
         `SELECT COALESCE(balance_eur, 0) AS balance_eur
@@ -80,20 +125,25 @@ r.post("/send", async (req, res, next) => {
       }
     }
 
-    // ---- 2) Forward to upstream ----
     const result = await upstream.send(req.body);
 
     const recipientsCount = Array.isArray(result.messages) ? result.messages.length : 1;
-    const providerTotal = Number(result.total_cost || 0);
-    const customerTotal = +(providerTotal * mult).toFixed(4);
     const segments = Number(result.segments || 1);
 
-    // Per-message split (so each log row carries its share)
-    const providerPer = recipientsCount > 0 ? +(providerTotal / recipientsCount).toFixed(4) : 0;
-    const customerPer = recipientsCount > 0 ? +(customerTotal / recipientsCount).toFixed(4) : 0;
-    const marginPer   = +(customerPer - providerPer).toFixed(4);
+    // Provider price: prefer our own catalog, fall back to upstream total
+    let providerPer = await providerPriceFor(req.body.route_option_id);
+    let providerTotal;
+    if (providerPer != null) {
+      providerPer = +(providerPer * segments).toFixed(4);
+      providerTotal = +(providerPer * recipientsCount).toFixed(4);
+    } else {
+      providerTotal = Number(result.total_cost || 0);
+      providerPer = recipientsCount > 0 ? +(providerTotal / recipientsCount).toFixed(4) : 0;
+    }
+    const customerPer = +(providerPer * mult).toFixed(4);
+    const customerTotal = +(customerPer * recipientsCount).toFixed(4);
+    const marginPer    = +(customerPer - providerPer).toFixed(4);
 
-    // ---- 3) Insert log rows ----
     if (Array.isArray(result.messages)) {
       for (const m of result.messages) {
         await client.query(
@@ -105,7 +155,7 @@ r.post("/send", async (req, res, next) => {
           [
             m.id, req.user.sub, m.recipient, req.body.sender_id || null,
             segments,
-            customerPer,           // legacy "cost" column = what customer paid
+            customerPer,
             providerPer, customerPer, marginPer,
             m.status, req.body.message || null, "Auto-routed",
           ]
@@ -113,11 +163,9 @@ r.post("/send", async (req, res, next) => {
       }
     }
 
-    // ---- 4) Charge the customer wallet (customers only, successful sends only) ----
     let newBalance = null;
     if (isCustomer && customerTotal > 0) {
       await client.query("BEGIN");
-      // Make sure the profile row exists
       await client.query(
         `INSERT INTO customer_profiles (user_id, balance_eur)
          VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`,
@@ -157,10 +205,8 @@ r.post("/send", async (req, res, next) => {
       ]
     );
 
-    // ---- 5) Respond with customer-facing numbers + accurate balance ----
     res.json({
       ...result,
-      // Override upstream cost so customer never sees provider price
       total_cost: customerTotal,
       provider_cost: req.user.role === "admin" ? providerTotal : undefined,
       margin: req.user.role === "admin" ? +(customerTotal - providerTotal).toFixed(4) : undefined,
@@ -174,10 +220,55 @@ r.post("/send", async (req, res, next) => {
   }
 });
 
+// Route tester: send one real SMS per selected route
+r.post("/test", async (req, res, next) => {
+  try {
+    const { to, message, routes: testedRoutes = [] } = req.body || {};
+    if (!to) return res.status(400).json({ message: "Missing destination number" });
+    if (!Array.isArray(testedRoutes) || testedRoutes.length === 0) {
+      return res.status(400).json({ message: "Pick at least one route to test" });
+    }
+
+    const mult = await getMarkupMultiplier();
+    const results = [];
+
+    for (const routeId of testedRoutes) {
+      const startedAt = Date.now();
+      try {
+        const r = await upstream.send({
+          to,
+          message: message || "SecretVoIP route test",
+          sender_id: req.body.sender_id || "SecretVoIP",
+          route_option_id: routeId,
+        });
+        const latency_ms = Date.now() - startedAt;
+        const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
+        const customer = +(provider * mult).toFixed(4);
+        results.push({
+          route: routeId,
+          status: r.status || "sent",
+          latency_ms,
+          cost: customer,
+          provider_cost: req.user.role === "admin" ? provider : undefined,
+          margin: req.user.role === "admin" ? +(customer - provider).toFixed(4) : undefined,
+          message_id: r.messages?.[0]?.id,
+        });
+      } catch (e) {
+        results.push({
+          route: routeId,
+          status: "failed",
+          latency_ms: Date.now() - startedAt,
+          cost: 0,
+          error: e?.message || "Upstream error",
+        });
+      }
+    }
+    res.json({ status: "tested", results });
+  } catch (e) { next(e); }
+});
+
 r.get("/logs", async (req, res, next) => {
   try {
-    // Always serve from local cache so we control pricing visibility
-    // (upstream logs would leak the provider cost to customers).
     const isAdmin = req.user.role === "admin";
     const params = [];
     let where = "WHERE 1=1";
@@ -223,7 +314,6 @@ r.get("/logs", async (req, res, next) => {
       `SELECT COUNT(*)::int AS n FROM sms_logs_cache ${where}`, params
     );
 
-    // Customers must never see provider cost / margin
     const data = rows.map((r) => {
       const base = {
         id: r.id,
