@@ -356,6 +356,10 @@ r.post("/test", async (req, res, next) => {
           provider_cost: req.user.role === "admin" ? provider : undefined,
           margin: req.user.role === "admin" ? margin : undefined,
           message_id: upstreamId,
+          option_id: routeId,
+          log_created: true,
+          wallet_transaction_created: isCustomer && customer > 0,
+          safe_response: req.user.role === "admin" ? safeUpstreamBody(r) : undefined,
         });
       } catch (e) {
         results.push({
@@ -365,6 +369,9 @@ r.post("/test", async (req, res, next) => {
           cost: 0,
           tag,
           error: e?.message || "Upstream error",
+          option_id: routeId,
+          log_created: false,
+          wallet_transaction_created: false,
         });
       }
     }
