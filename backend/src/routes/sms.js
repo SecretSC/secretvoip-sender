@@ -238,6 +238,25 @@ function routeTagFor(optionId) {
   return id ? id.toUpperCase() : "ROUTE TEST";
 }
 
+function safeUpstreamBody(body) {
+  if (!body || typeof body !== "object") return body;
+  const scrub = (value) => {
+    if (Array.isArray(value)) return value.map(scrub);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => (
+        /key|token|secret|authorization|password/i.test(k) ? [k, "[redacted]"] : [k, scrub(v)]
+      )));
+    }
+    return value;
+  };
+  return scrub(body);
+}
+
+function csvEscape(value) {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 // Route tester: send one real SMS per selected route, charging the customer
 // just like a normal send so logs and balance match production behaviour.
 r.post("/test", async (req, res, next) => {
@@ -337,6 +356,10 @@ r.post("/test", async (req, res, next) => {
           provider_cost: req.user.role === "admin" ? provider : undefined,
           margin: req.user.role === "admin" ? margin : undefined,
           message_id: upstreamId,
+          option_id: routeId,
+          log_created: true,
+          wallet_transaction_created: isCustomer && customer > 0,
+          safe_response: req.user.role === "admin" ? safeUpstreamBody(r) : undefined,
         });
       } catch (e) {
         results.push({
@@ -346,6 +369,9 @@ r.post("/test", async (req, res, next) => {
           cost: 0,
           tag,
           error: e?.message || "Upstream error",
+          option_id: routeId,
+          log_created: false,
+          wallet_transaction_created: false,
         });
       }
     }
@@ -415,6 +441,17 @@ r.get("/diagnostics", async (req, res, next) => {
       api_base_present: Boolean(process.env.SMS_UPSTREAM_BASE_URL),
       markup_multiplier: mult,
       families,
+      route_options: {
+        alpha: [{ option_id: "alpha", available: families.alpha }],
+        beta: [{ option_id: "beta", available: families.beta }],
+        epsilon: [
+          { option_id: "epsilon", available: families.epsilon },
+          ...(Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : []).map((x) => ({ ...x, available: true })),
+        ],
+        gamma: Array.isArray(data?.gamma_options)
+          ? data.gamma_options.map((x) => ({ ...x, available: true }))
+          : Object.values(data?.gamma_by_country || {}).flat().map((x) => ({ ...x, available: true })),
+      },
       gamma_country_count: data?.gamma_by_country
         ? Object.keys(data.gamma_by_country).length
         : 0,
@@ -433,26 +470,26 @@ r.get("/logs", async (req, res, next) => {
     let where = "WHERE 1=1";
     if (!isAdmin) {
       params.push(req.user.sub);
-      where += ` AND customer_id = $${params.length}`;
+      where += ` AND l.customer_id = $${params.length}`;
     } else if (req.query.customer_id) {
       params.push(req.query.customer_id);
-      where += ` AND customer_id = $${params.length}`;
+      where += ` AND l.customer_id = $${params.length}`;
     }
     if (req.query.search) {
       params.push(`%${req.query.search}%`);
-      where += ` AND recipient ILIKE $${params.length}`;
+      where += ` AND l.recipient ILIKE $${params.length}`;
     }
     if (req.query.status && req.query.status !== "all") {
       params.push(req.query.status);
-      where += ` AND status = $${params.length}`;
+      where += ` AND l.status = $${params.length}`;
     }
     if (req.query.from) {
       params.push(req.query.from);
-      where += ` AND created_at >= $${params.length}::date`;
+      where += ` AND l.created_at >= $${params.length}::date`;
     }
     if (req.query.to) {
       params.push(req.query.to);
-      where += ` AND created_at <= ($${params.length}::date + interval '1 day')`;
+      where += ` AND l.created_at <= ($${params.length}::date + interval '1 day')`;
     }
 
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 25));
@@ -460,17 +497,19 @@ r.get("/logs", async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const { rows } = await pool.query(
-      `SELECT id, upstream_id, recipient, sender_id, segments,
+      `SELECT l.id, l.upstream_id, l.recipient, l.sender_id, l.segments,
               cost, provider_cost, customer_cost, margin,
-              status, message, direction, customer_id, created_at
-         FROM sms_logs_cache
+               l.status, l.message, l.direction, l.customer_id, l.created_at,
+               u.email AS customer_email, u.name AS customer_name
+         FROM sms_logs_cache l
+         LEFT JOIN users u ON u.id = l.customer_id
          ${where}
-         ORDER BY created_at DESC
+         ORDER BY l.created_at DESC
          LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     const { rows: cnt } = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM sms_logs_cache ${where}`, params
+      `SELECT COUNT(*)::int AS n FROM sms_logs_cache l ${where}`, params
     );
 
     const data = rows.map((r) => {
@@ -489,6 +528,7 @@ r.get("/logs", async (req, res, next) => {
         return {
           ...base,
           customer_id: r.customer_id,
+          customer: r.customer_name || r.customer_email || r.customer_id,
           provider_cost: Number(r.provider_cost || 0),
           customer_cost: Number(r.customer_cost ?? r.cost ?? 0),
           margin: Number(r.margin || 0),
@@ -502,6 +542,49 @@ r.get("/logs", async (req, res, next) => {
       total: cnt[0].n,
       has_more: offset + data.length < cnt[0].n,
     });
+  } catch (e) { next(e); }
+});
+
+r.get("/logs/export", async (req, res, next) => {
+  try {
+    const isAdmin = req.user.role === "admin";
+    const params = [];
+    let where = "WHERE 1=1";
+    if (!isAdmin) {
+      params.push(req.user.sub);
+      where += ` AND l.customer_id = $${params.length}`;
+    } else if (req.query.customer_id) {
+      params.push(req.query.customer_id);
+      where += ` AND l.customer_id = $${params.length}`;
+    }
+    if (req.query.from) { params.push(req.query.from); where += ` AND l.created_at >= $${params.length}::date`; }
+    if (req.query.to) { params.push(req.query.to); where += ` AND l.created_at <= ($${params.length}::date + interval '1 day')`; }
+    if (req.query.status && req.query.status !== "all") { params.push(req.query.status); where += ` AND l.status = $${params.length}`; }
+    if (req.query.search) { params.push(`%${req.query.search}%`); where += ` AND l.recipient ILIKE $${params.length}`; }
+
+    const { rows } = await pool.query(
+      `SELECT l.created_at, u.email AS customer_email, u.name AS customer_name,
+              l.recipient, l.sender_id, l.message, l.segments, l.status,
+              l.provider_cost, l.customer_cost, l.cost, l.margin, l.direction
+         FROM sms_logs_cache l
+         LEFT JOIN users u ON u.id = l.customer_id
+         ${where}
+         ORDER BY l.created_at DESC`, params
+    );
+    const headers = isAdmin
+      ? ["date","customer","recipient","sender_id","message","segments","status","provider_cost","customer_cost","margin","direction"]
+      : ["date","recipient","sender_id","message","segments","status","customer_cost","direction"];
+    const lines = [headers.join(",")];
+    for (const row of rows) {
+      const customerCost = Number(row.customer_cost ?? row.cost ?? 0).toFixed(4);
+      const values = isAdmin
+        ? [row.created_at, row.customer_name || row.customer_email || "", row.recipient, row.sender_id, row.message, row.segments, row.status, Number(row.provider_cost || 0).toFixed(4), customerCost, Number(row.margin || 0).toFixed(4), row.direction]
+        : [row.created_at, row.recipient, row.sender_id, row.message, row.segments, row.status, customerCost, row.direction];
+      lines.push(values.map(csvEscape).join(","));
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="sms-history-${new Date().toISOString().slice(0,10)}.csv"`);
+    res.send(lines.join("\n"));
   } catch (e) { next(e); }
 });
 

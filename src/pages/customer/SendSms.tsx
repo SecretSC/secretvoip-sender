@@ -6,11 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import RoutePicker, { defaultSelection, RouteSelection } from "@/components/sms/RoutePicker";
 import { api } from "@/lib/api";
 import { estimateSegments, parseRecipients } from "@/lib/sms";
 import { toast } from "sonner";
-import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle } from "lucide-react";
+import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle, Save, Trash2 } from "lucide-react";
 
 const num = (v: unknown, d = 0) => {
   const n = Number(v);
@@ -32,6 +34,10 @@ export default function SendSms() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState<number>(0);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDialog, setTemplateDialog] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<any | null>(null);
 
   // Pricing pulled from backend — single source of truth
   const [flatPrices, setFlatPrices] = useState<Record<string, number>>({
@@ -52,8 +58,12 @@ export default function SendSms() {
       setBalance(num(r.balance_eur));
     } catch {}
   };
+  const refreshTemplates = async () => {
+    try { setTemplates((await api.templates()) as any[]); } catch {}
+  };
   useEffect(() => {
     refreshBalance();
+    refreshTemplates();
     (async () => {
       try {
         const m: any = await api.markup();
@@ -86,6 +96,30 @@ export default function SendSms() {
     if (route.kind === "gamma") return route.gamma.option_id;
     if (route.kind === "epsilon" && route.subroute) return route.subroute.option_id;
     return route.option_id;
+  };
+
+  const loadTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setSender(t.sender_id || "");
+    setMessage(t.message || "");
+    toast.success("Template loaded");
+  };
+
+  const saveTemplate = async () => {
+    if (!templateName.trim()) return toast.error("Template name is required");
+    if (!sender.trim() || !message.trim()) return toast.error("Sender ID and message are required");
+    try {
+      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: sender, message });
+      else await api.createTemplate({ name: templateName.trim(), sender_id: sender, message });
+      setTemplateDialog(false); setEditingTemplate(null); setTemplateName(""); refreshTemplates();
+      toast.success("Template saved");
+    } catch (e: any) { toast.error(e.message || "Could not save template"); }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    try { await api.deleteTemplate(id); refreshTemplates(); toast.success("Template deleted"); }
+    catch (e: any) { toast.error(e.message || "Could not delete template"); }
   };
 
   const CONCURRENCY = 5;
@@ -209,6 +243,20 @@ export default function SendSms() {
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5">
           <div className="ring-gradient glass rounded-2xl p-5">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end sm:justify-between mb-4">
+              <div className="sm:min-w-[260px]">
+                <Label>Load template</Label>
+                <Select onValueChange={loadTemplate} disabled={loading || templates.length === 0}>
+                  <SelectTrigger><SelectValue placeholder={templates.length ? "Choose saved template" : "No saved templates"} /></SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="soft" onClick={() => { setEditingTemplate(null); setTemplateName(""); setTemplateDialog(true); }} disabled={loading || templates.length >= 10}>
+                <Save className="w-4 h-4" /> Save template
+              </Button>
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <Label>Sender ID</Label>
@@ -254,6 +302,26 @@ export default function SendSms() {
             </div>
             <RoutePicker value={route} onChange={setRoute} />
           </div>
+
+          {templates.length > 0 && (
+            <div className="ring-gradient glass rounded-2xl p-5">
+              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Saved templates ({templates.length}/10)</div>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {templates.map((t) => (
+                  <div key={t.id} className="rounded-xl border border-border bg-card/40 p-3 flex items-center justify-between gap-2">
+                    <button className="min-w-0 text-left" onClick={() => loadTemplate(t.id)}>
+                      <div className="text-sm font-medium truncate">{t.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{t.sender_id}</div>
+                    </button>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" onClick={() => { setEditingTemplate(t); setTemplateName(t.name); setSender(t.sender_id); setMessage(t.message); setTemplateDialog(true); }}>Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => deleteTemplate(t.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="hero" size="lg" onClick={submit} disabled={loading || balance <= 0} className="flex-1">
@@ -341,6 +409,18 @@ export default function SendSms() {
           )}
         </div>
       </div>
+
+      <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingTemplate ? "Edit template" : "Save SMS template"}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Template name</Label><Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="e.g. Payment reminder" /></div>
+            <div><Label>Sender ID</Label><Input value={sender} onChange={(e) => setSender(e.target.value)} /></div>
+            <div><Label>Message</Label><Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
+            <Button variant="hero" className="w-full" onClick={saveTemplate}>Save template</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

@@ -29,6 +29,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function download(path: string): Promise<Blob> {
+  const token = localStorage.getItem("svp_token");
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || `Request failed: ${res.status}`);
+  }
+  return res.blob();
+}
+
 export const api = {
   // ---- Auth ----
   login: (identifier: string, password: string) =>
@@ -58,6 +70,8 @@ export const api = {
     USE_MOCK ? mockApi.testRoutes(payload) : request("/sms/test", { method: "POST", body: JSON.stringify(payload) }),
   logs: (params: { page?: number; limit?: number; search?: string; from?: string; to?: string; status?: string; customer_id?: string } = {}) =>
     USE_MOCK ? mockApi.logs(params) : request(`/sms/logs?${new URLSearchParams(params as any).toString()}`),
+  exportLogs: (params: { search?: string; from?: string; to?: string; status?: string; customer_id?: string } = {}) =>
+    USE_MOCK ? mockApi.exportLogs(params) : download(`/sms/logs/export?${new URLSearchParams(params as any).toString()}`),
 
   // ---- Admin ----
   customers: () => USE_MOCK ? mockApi.customers() : request("/admin/customers"),
@@ -78,6 +92,10 @@ export const api = {
       ? mockApi.topUpCustomer(id, amount_eur, note, type)
       : request(`/admin/customers/${id}/topup`, { method: "POST", body: JSON.stringify({ amount_eur, note, type }) }),
   myWallet: () => USE_MOCK ? mockApi.myWallet() : request("/me/wallet"),
+  templates: () => USE_MOCK ? mockApi.templates() : request("/me/templates"),
+  createTemplate: (payload: any) => USE_MOCK ? mockApi.createTemplate(payload) : request("/me/templates", { method: "POST", body: JSON.stringify(payload) }),
+  updateTemplate: (id: string, payload: any) => USE_MOCK ? mockApi.updateTemplate(id, payload) : request(`/me/templates/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteTemplate: (id: string) => USE_MOCK ? mockApi.deleteTemplate(id) : request(`/me/templates/${id}`, { method: "DELETE" }),
 
   auditLog: () => USE_MOCK ? mockApi.auditLog() : request("/admin/audit"),
   stats: () => USE_MOCK ? mockApi.stats() : request("/admin/stats"),

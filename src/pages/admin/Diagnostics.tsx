@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -27,6 +28,7 @@ type Diag = {
   families: { alpha: boolean; beta: boolean; epsilon: boolean; gamma: boolean };
   gamma_country_count: number;
   epsilon_subroute_count: number;
+  route_options?: Record<string, any[]>;
   checked_at: string;
 };
 
@@ -149,6 +151,26 @@ export default function AdminDiagnostics() {
                 );
               })}
             </div>
+            {diag?.route_options && (
+              <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                {Object.entries(diag.route_options).map(([family, opts]) => (
+                  <div key={family} className="rounded-xl border border-border bg-card/40 p-3">
+                    <div className="font-display text-sm capitalize mb-2">{family}</div>
+                    <div className="space-y-1 max-h-40 overflow-auto">
+                      {(opts || []).map((o: any) => (
+                        <div key={o.option_id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-mono truncate">{o.option_id}</span>
+                          <StatusBadge status={o.available ? "available" : "failed"} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground mt-3">
+              Epsilon TTSKY per-sub-route tests are only available when the upstream exposes option_ids. Gamma tests use the selected channel option_id and append its route tag.
+            </div>
             {diag?.checked_at && (
               <div className="text-[11px] text-muted-foreground mt-3">
                 Checked at {new Date(diag.checked_at).toLocaleString()}
@@ -168,15 +190,15 @@ export default function AdminDiagnostics() {
           </div>
           <div>
             <Label>Route</Label>
-            <select
-              value={probeRoute}
-              onChange={(e) => setProbeRoute(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {ROUTE_CATALOG.filter((r) => r.family !== "gamma").map((r) => (
-                <option key={r.option_id} value={r.option_id}>{r.label}</option>
-              ))}
-            </select>
+            <Select value={probeRoute} onValueChange={setProbeRoute}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(diag?.route_options ? Object.values(diag.route_options).flat() : ROUTE_CATALOG).map((r: any) => (
+                  <SelectItem key={r.option_id} value={r.option_id}>{r.label || r.channel_name || r.option_id}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="text-[11px] text-muted-foreground mt-1 break-all">option_id: {probeRoute}</div>
           </div>
           <div>
             <Label>Destination number</Label>
@@ -214,6 +236,13 @@ export default function AdminDiagnostics() {
               )}
               {probeResult.error && (
                 <div className="text-xs text-destructive break-words">{probeResult.error}</div>
+              )}
+              <Row k="Log created" v={probeResult.log_created ? "Yes" : "No"} />
+              <Row k="Wallet transaction" v={probeResult.wallet_transaction_created ? "Yes" : "No"} />
+              {probeResult.safe_response && (
+                <pre className="max-h-40 overflow-auto rounded-lg bg-background/70 p-2 text-[11px] whitespace-pre-wrap break-words">
+                  {JSON.stringify(probeResult.safe_response, null, 2)}
+                </pre>
               )}
             </div>
           )}
