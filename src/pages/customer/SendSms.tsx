@@ -243,6 +243,20 @@ export default function SendSms() {
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-5">
           <div className="ring-gradient glass rounded-2xl p-5">
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-end sm:justify-between mb-4">
+              <div className="sm:min-w-[260px]">
+                <Label>Load template</Label>
+                <Select onValueChange={loadTemplate} disabled={loading || templates.length === 0}>
+                  <SelectTrigger><SelectValue placeholder={templates.length ? "Choose saved template" : "No saved templates"} /></SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button variant="soft" onClick={() => { setEditingTemplate(null); setTemplateName(""); setTemplateDialog(true); }} disabled={loading || templates.length >= 10}>
+                <Save className="w-4 h-4" /> Save template
+              </Button>
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <Label>Sender ID</Label>
@@ -288,6 +302,26 @@ export default function SendSms() {
             </div>
             <RoutePicker value={route} onChange={setRoute} />
           </div>
+
+          {templates.length > 0 && (
+            <div className="ring-gradient glass rounded-2xl p-5">
+              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Saved templates ({templates.length}/10)</div>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {templates.map((t) => (
+                  <div key={t.id} className="rounded-xl border border-border bg-card/40 p-3 flex items-center justify-between gap-2">
+                    <button className="min-w-0 text-left" onClick={() => loadTemplate(t.id)}>
+                      <div className="text-sm font-medium truncate">{t.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{t.sender_id}</div>
+                    </button>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" onClick={() => { setEditingTemplate(t); setTemplateName(t.name); setSender(t.sender_id); setMessage(t.message); setTemplateDialog(true); }}>Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => deleteTemplate(t.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="hero" size="lg" onClick={submit} disabled={loading || balance <= 0} className="flex-1">
@@ -375,6 +409,18 @@ export default function SendSms() {
           )}
         </div>
       </div>
+
+      <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingTemplate ? "Edit template" : "Save SMS template"}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Template name</Label><Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="e.g. Payment reminder" /></div>
+            <div><Label>Sender ID</Label><Input value={sender} onChange={(e) => setSender(e.target.value)} /></div>
+            <div><Label>Message</Label><Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
+            <Button variant="hero" className="w-full" onClick={saveTemplate}>Save template</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
