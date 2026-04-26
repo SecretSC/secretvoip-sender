@@ -151,6 +151,26 @@ export default function AdminDiagnostics() {
                 );
               })}
             </div>
+            {diag?.route_options && (
+              <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                {Object.entries(diag.route_options).map(([family, opts]) => (
+                  <div key={family} className="rounded-xl border border-border bg-card/40 p-3">
+                    <div className="font-display text-sm capitalize mb-2">{family}</div>
+                    <div className="space-y-1 max-h-40 overflow-auto">
+                      {(opts || []).map((o: any) => (
+                        <div key={o.option_id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-mono truncate">{o.option_id}</span>
+                          <StatusBadge status={o.available ? "available" : "failed"} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-muted-foreground mt-3">
+              Epsilon TTSKY per-sub-route tests are only available when the upstream exposes option_ids. Gamma tests use the selected channel option_id and append its route tag.
+            </div>
             {diag?.checked_at && (
               <div className="text-[11px] text-muted-foreground mt-3">
                 Checked at {new Date(diag.checked_at).toLocaleString()}
