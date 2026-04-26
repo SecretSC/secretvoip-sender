@@ -238,6 +238,25 @@ function routeTagFor(optionId) {
   return id ? id.toUpperCase() : "ROUTE TEST";
 }
 
+function safeUpstreamBody(body) {
+  if (!body || typeof body !== "object") return body;
+  const scrub = (value) => {
+    if (Array.isArray(value)) return value.map(scrub);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => (
+        /key|token|secret|authorization|password/i.test(k) ? [k, "[redacted]"] : [k, scrub(v)]
+      )));
+    }
+    return value;
+  };
+  return scrub(body);
+}
+
+function csvEscape(value) {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 // Route tester: send one real SMS per selected route, charging the customer
 // just like a normal send so logs and balance match production behaviour.
 r.post("/test", async (req, res, next) => {
