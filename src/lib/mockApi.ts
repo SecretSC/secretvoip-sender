@@ -23,6 +23,7 @@ const STORAGE = {
   me: "svp_me",
   wallets: "svp_wallets",        // { [userId]: number }
   walletTx: "svp_wallet_tx",     // { [userId]: Tx[] }
+  templates: "svp_templates",    // { [userId]: Template[] }
 };
 
 // Bump this whenever we want to wipe stale demo data from existing browsers.
@@ -55,6 +56,10 @@ function now() { return new Date().toISOString(); }
 function fmt(d = new Date()) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function csvEscape(value: any) {
+  const s = value == null ? "" : String(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // ----- Seeding -----
