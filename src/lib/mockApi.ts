@@ -463,6 +463,12 @@ export const mockApi = {
       api_base_present: true,
       markup_multiplier: 1.5,
       families: { alpha: true, beta: true, epsilon: true, gamma: true },
+      route_options: {
+        alpha: [{ option_id: "alpha", available: true }],
+        beta: [{ option_id: "beta", available: true }],
+        epsilon: [{ option_id: "epsilon", available: true }],
+        gamma: GAMMA_COUNTRIES.flatMap((c) => c.channels.map((ch) => ({ ...ch, country: c.country, available: true }))),
+      },
       gamma_country_count: 31,
       epsilon_subroute_count: 13,
       checked_at: new Date().toISOString(),
