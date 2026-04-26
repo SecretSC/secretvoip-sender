@@ -289,6 +289,60 @@ export const mockApi = {
     return delay({ data, page, limit, has_more: start + limit < list.length, total: list.length });
   },
 
+  async exportLogs(params: any) {
+    const m = me();
+    let list = read<any[]>(STORAGE.logs, []);
+    const isAdmin = m?.role === "admin";
+    if (m && m.role === "customer") list = list.filter((x) => x.customer_id === m.id);
+    if (isAdmin && params.customer_id) list = list.filter((x) => x.customer_id === params.customer_id);
+    if (params.search) list = list.filter((x) => x.recipient.includes(params.search));
+    if (params.status && params.status !== "all") list = list.filter((x) => x.status === params.status);
+    if (params.from) list = list.filter((x) => x.date >= params.from);
+    if (params.to) list = list.filter((x) => x.date <= params.to + " 23:59:59");
+    const headers = isAdmin
+      ? ["date","customer","recipient","sender_id","message","segments","status","provider_cost","customer_cost","margin","direction"]
+      : ["date","recipient","sender_id","message","segments","status","customer_cost","direction"];
+    const lines = [headers.join(",")];
+    list.forEach((x) => lines.push((isAdmin
+      ? [x.date, x.customer_id, x.recipient, x.sender_id, x.message, x.segments, x.status, x.provider_cost, x.customer_cost ?? x.cost, x.margin, x.direction]
+      : [x.date, x.recipient, x.sender_id, x.message, x.segments, x.status, x.customer_cost ?? x.cost, x.direction]
+    ).map(csvEscape).join(",")));
+    return delay(new Blob([lines.join("\n")], { type: "text/csv" }));
+  },
+
+  async templates() {
+    const m = me();
+    const all = read<Record<string, any[]>>(STORAGE.templates, {});
+    return delay(m ? all[m.id] ?? [] : []);
+  },
+  async createTemplate(payload: any) {
+    const m = me();
+    if (!m) throw new Error("Not authenticated");
+    const all = read<Record<string, any[]>>(STORAGE.templates, {});
+    const list = all[m.id] ?? [];
+    if (list.length >= 10) throw new Error("Maximum 10 templates allowed");
+    const t = { id: uid(), ...payload, created_at: now(), updated_at: now() };
+    all[m.id] = [t, ...list];
+    write(STORAGE.templates, all);
+    return delay(t);
+  },
+  async updateTemplate(id: string, payload: any) {
+    const m = me();
+    if (!m) throw new Error("Not authenticated");
+    const all = read<Record<string, any[]>>(STORAGE.templates, {});
+    all[m.id] = (all[m.id] ?? []).map((t) => t.id === id ? { ...t, ...payload, updated_at: now() } : t);
+    write(STORAGE.templates, all);
+    return delay((all[m.id] ?? []).find((t) => t.id === id));
+  },
+  async deleteTemplate(id: string) {
+    const m = me();
+    if (!m) throw new Error("Not authenticated");
+    const all = read<Record<string, any[]>>(STORAGE.templates, {});
+    all[m.id] = (all[m.id] ?? []).filter((t) => t.id !== id);
+    write(STORAGE.templates, all);
+    return delay({ ok: true });
+  },
+
   // ---- Admin ----
   async customers() {
     const users = read<User[]>(STORAGE.users, []);
