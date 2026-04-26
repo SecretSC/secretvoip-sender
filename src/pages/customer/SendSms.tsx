@@ -6,11 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import RoutePicker, { defaultSelection, RouteSelection } from "@/components/sms/RoutePicker";
 import { api } from "@/lib/api";
 import { estimateSegments, parseRecipients } from "@/lib/sms";
 import { toast } from "sonner";
-import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle } from "lucide-react";
+import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle, Save, Trash2 } from "lucide-react";
 
 const num = (v: unknown, d = 0) => {
   const n = Number(v);
@@ -32,6 +34,10 @@ export default function SendSms() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState<number>(0);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDialog, setTemplateDialog] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<any | null>(null);
 
   // Pricing pulled from backend — single source of truth
   const [flatPrices, setFlatPrices] = useState<Record<string, number>>({
@@ -52,8 +58,12 @@ export default function SendSms() {
       setBalance(num(r.balance_eur));
     } catch {}
   };
+  const refreshTemplates = async () => {
+    try { setTemplates((await api.templates()) as any[]); } catch {}
+  };
   useEffect(() => {
     refreshBalance();
+    refreshTemplates();
     (async () => {
       try {
         const m: any = await api.markup();
@@ -86,6 +96,30 @@ export default function SendSms() {
     if (route.kind === "gamma") return route.gamma.option_id;
     if (route.kind === "epsilon" && route.subroute) return route.subroute.option_id;
     return route.option_id;
+  };
+
+  const loadTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setSender(t.sender_id || "");
+    setMessage(t.message || "");
+    toast.success("Template loaded");
+  };
+
+  const saveTemplate = async () => {
+    if (!templateName.trim()) return toast.error("Template name is required");
+    if (!sender.trim() || !message.trim()) return toast.error("Sender ID and message are required");
+    try {
+      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: sender, message });
+      else await api.createTemplate({ name: templateName.trim(), sender_id: sender, message });
+      setTemplateDialog(false); setEditingTemplate(null); setTemplateName(""); refreshTemplates();
+      toast.success("Template saved");
+    } catch (e: any) { toast.error(e.message || "Could not save template"); }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    try { await api.deleteTemplate(id); refreshTemplates(); toast.success("Template deleted"); }
+    catch (e: any) { toast.error(e.message || "Could not delete template"); }
   };
 
   const CONCURRENCY = 5;
