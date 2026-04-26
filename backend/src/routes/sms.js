@@ -441,6 +441,17 @@ r.get("/diagnostics", async (req, res, next) => {
       api_base_present: Boolean(process.env.SMS_UPSTREAM_BASE_URL),
       markup_multiplier: mult,
       families,
+      route_options: {
+        alpha: [{ option_id: "alpha", available: families.alpha }],
+        beta: [{ option_id: "beta", available: families.beta }],
+        epsilon: [
+          { option_id: "epsilon", available: families.epsilon },
+          ...(Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : []).map((x) => ({ ...x, available: true })),
+        ],
+        gamma: Array.isArray(data?.gamma_options)
+          ? data.gamma_options.map((x) => ({ ...x, available: true }))
+          : Object.values(data?.gamma_by_country || {}).flat().map((x) => ({ ...x, available: true })),
+      },
       gamma_country_count: data?.gamma_by_country
         ? Object.keys(data.gamma_by_country).length
         : 0,
