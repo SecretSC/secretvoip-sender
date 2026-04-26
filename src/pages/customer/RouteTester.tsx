@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -33,11 +34,21 @@ export default function RouteTester() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<RouteResult[] | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [templates, setTemplates] = useState<any[]>([]);
+
+  useEffect(() => { api.templates().then((r: any) => setTemplates(r)).catch(() => {}); }, []);
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const selectAll = () => setSelected(ROUTE_CATALOG.map((r) => r.option_id));
   const clearAll = () => setSelected([]);
+  const loadTemplate = (id: string) => {
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setSender(t.sender_id || "");
+    setMessage(t.message || "");
+    toast.success("Template loaded");
+  };
 
   const summary = useMemo(() => {
     if (!results) return null;
@@ -91,6 +102,13 @@ export default function RouteTester() {
       <div className="grid lg:grid-cols-3 gap-5">
         {/* Form */}
         <div className="lg:col-span-1 ring-gradient glass rounded-2xl p-5 space-y-4">
+          <div>
+            <Label>Load template</Label>
+            <Select onValueChange={loadTemplate} disabled={templates.length === 0 || loading}>
+              <SelectTrigger><SelectValue placeholder={templates.length ? "Choose template" : "No saved templates"} /></SelectTrigger>
+              <SelectContent>{templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
           <div>
             <Label>Destination number</Label>
             <Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 12025550123" />
