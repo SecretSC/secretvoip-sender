@@ -470,26 +470,26 @@ r.get("/logs", async (req, res, next) => {
     let where = "WHERE 1=1";
     if (!isAdmin) {
       params.push(req.user.sub);
-      where += ` AND customer_id = $${params.length}`;
+      where += ` AND l.customer_id = $${params.length}`;
     } else if (req.query.customer_id) {
       params.push(req.query.customer_id);
-      where += ` AND customer_id = $${params.length}`;
+      where += ` AND l.customer_id = $${params.length}`;
     }
     if (req.query.search) {
       params.push(`%${req.query.search}%`);
-      where += ` AND recipient ILIKE $${params.length}`;
+      where += ` AND l.recipient ILIKE $${params.length}`;
     }
     if (req.query.status && req.query.status !== "all") {
       params.push(req.query.status);
-      where += ` AND status = $${params.length}`;
+      where += ` AND l.status = $${params.length}`;
     }
     if (req.query.from) {
       params.push(req.query.from);
-      where += ` AND created_at >= $${params.length}::date`;
+      where += ` AND l.created_at >= $${params.length}::date`;
     }
     if (req.query.to) {
       params.push(req.query.to);
-      where += ` AND created_at <= ($${params.length}::date + interval '1 day')`;
+      where += ` AND l.created_at <= ($${params.length}::date + interval '1 day')`;
     }
 
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 25));
@@ -509,7 +509,7 @@ r.get("/logs", async (req, res, next) => {
       params
     );
     const { rows: cnt } = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM sms_logs_cache ${where}`, params
+      `SELECT COUNT(*)::int AS n FROM sms_logs_cache l ${where}`, params
     );
 
     const data = rows.map((r) => {
