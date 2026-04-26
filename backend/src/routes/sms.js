@@ -497,12 +497,14 @@ r.get("/logs", async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const { rows } = await pool.query(
-      `SELECT id, upstream_id, recipient, sender_id, segments,
+      `SELECT l.id, l.upstream_id, l.recipient, l.sender_id, l.segments,
               cost, provider_cost, customer_cost, margin,
-              status, message, direction, customer_id, created_at
-         FROM sms_logs_cache
+               l.status, l.message, l.direction, l.customer_id, l.created_at,
+               u.email AS customer_email, u.name AS customer_name
+         FROM sms_logs_cache l
+         LEFT JOIN users u ON u.id = l.customer_id
          ${where}
-         ORDER BY created_at DESC
+         ORDER BY l.created_at DESC
          LIMIT ${limit} OFFSET ${offset}`,
       params
     );
@@ -526,6 +528,7 @@ r.get("/logs", async (req, res, next) => {
         return {
           ...base,
           customer_id: r.customer_id,
+          customer: r.customer_name || r.customer_email || r.customer_id,
           provider_cost: Number(r.provider_cost || 0),
           customer_cost: Number(r.customer_cost ?? r.cost ?? 0),
           margin: Number(r.margin || 0),
