@@ -118,3 +118,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at      TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sms_templates (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  sender_id       TEXT NOT NULL,
+  message         TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sms_templates_customer_date ON sms_templates (customer_id, updated_at DESC);
