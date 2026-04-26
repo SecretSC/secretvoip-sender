@@ -545,4 +545,47 @@ r.get("/logs", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get("/logs/export", async (req, res, next) => {
+  try {
+    const isAdmin = req.user.role === "admin";
+    const params = [];
+    let where = "WHERE 1=1";
+    if (!isAdmin) {
+      params.push(req.user.sub);
+      where += ` AND l.customer_id = $${params.length}`;
+    } else if (req.query.customer_id) {
+      params.push(req.query.customer_id);
+      where += ` AND l.customer_id = $${params.length}`;
+    }
+    if (req.query.from) { params.push(req.query.from); where += ` AND l.created_at >= $${params.length}::date`; }
+    if (req.query.to) { params.push(req.query.to); where += ` AND l.created_at <= ($${params.length}::date + interval '1 day')`; }
+    if (req.query.status && req.query.status !== "all") { params.push(req.query.status); where += ` AND l.status = $${params.length}`; }
+    if (req.query.search) { params.push(`%${req.query.search}%`); where += ` AND l.recipient ILIKE $${params.length}`; }
+
+    const { rows } = await pool.query(
+      `SELECT l.created_at, u.email AS customer_email, u.name AS customer_name,
+              l.recipient, l.sender_id, l.message, l.segments, l.status,
+              l.provider_cost, l.customer_cost, l.cost, l.margin, l.direction
+         FROM sms_logs_cache l
+         LEFT JOIN users u ON u.id = l.customer_id
+         ${where}
+         ORDER BY l.created_at DESC`, params
+    );
+    const headers = isAdmin
+      ? ["date","customer","recipient","sender_id","message","segments","status","provider_cost","customer_cost","margin","direction"]
+      : ["date","recipient","sender_id","message","segments","status","customer_cost","direction"];
+    const lines = [headers.join(",")];
+    for (const row of rows) {
+      const customerCost = Number(row.customer_cost ?? row.cost ?? 0).toFixed(4);
+      const values = isAdmin
+        ? [row.created_at, row.customer_name || row.customer_email || "", row.recipient, row.sender_id, row.message, row.segments, row.status, Number(row.provider_cost || 0).toFixed(4), customerCost, Number(row.margin || 0).toFixed(4), row.direction]
+        : [row.created_at, row.recipient, row.sender_id, row.message, row.segments, row.status, customerCost, row.direction];
+      lines.push(values.map(csvEscape).join(","));
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="sms-history-${new Date().toISOString().slice(0,10)}.csv"`);
+    res.send(lines.join("\n"));
+  } catch (e) { next(e); }
+});
+
 export default r;
