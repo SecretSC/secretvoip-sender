@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Download, Search } from "lucide-react";
+import { toast } from "sonner";
 
 const num = (v: unknown, d = 0) => {
   const n = Number(v);
@@ -27,6 +29,7 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
   const [status, setStatus] = useState("all");
   const [data, setData] = useState<any>({ data: [], total: 0, has_more: false });
   const [loading, setLoading] = useState(false);
+  const [selectedLog, setSelectedLog] = useState<any | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -36,6 +39,18 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [page, limit]);
+
+  const exportCsv = async () => {
+    try {
+      const blob = await api.exportLogs({ search, from, to, status });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sms-history-${from || "all"}-${to || "today"}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) { toast.error(e.message || "Export failed"); }
+  };
 
   return (
     <DashboardLayout kind={kind}>
@@ -76,7 +91,8 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
             </Select>
           </div>
         </div>
-        <div className="flex justify-end mt-3">
+        <div className="flex flex-col sm:flex-row justify-end gap-2 mt-3">
+          <Button variant="soft" onClick={exportCsv}><Download className="w-4 h-4" /> Export CSV</Button>
           <Button variant="hero" onClick={() => { setPage(1); load(); }}>Apply filters</Button>
         </div>
       </div>
@@ -111,7 +127,11 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
                     <td className="py-2.5 px-4 font-mono text-xs">{r.recipient}</td>
                     <td className="py-2.5 px-4 text-xs">{r.sender_id}</td>
                     <td className="py-2.5 px-4 text-xs text-muted-foreground">{r.direction}</td>
-                    <td className="py-2.5 px-4 max-w-[280px] truncate">{r.message}</td>
+                    <td className="py-2.5 px-4 max-w-[280px]">
+                      <button className="truncate max-w-[260px] text-left hover:text-secondary-glow" onClick={() => setSelectedLog(r)}>
+                        {r.message || "—"}
+                      </button>
+                    </td>
                     <td className="py-2.5 px-4 text-center text-xs">{num(r.segments)}</td>
                     {isAdmin && <td className="py-2.5 px-4 text-right text-xs text-muted-foreground">{providerCost.toFixed(3)} €</td>}
                     <td className="py-2.5 px-4 text-right text-xs text-secondary-glow">{customerCost.toFixed(3)} €</td>
@@ -140,6 +160,34 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
           </div>
         </div>
       </div>
+
+      <Dialog open={!!selectedLog} onOpenChange={(o) => !o && setSelectedLog(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Full SMS content</DialogTitle></DialogHeader>
+          {selectedLog && (
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                <Info k="Recipient" v={selectedLog.recipient} />
+                <Info k="Sender ID" v={selectedLog.sender_id || "—"} />
+                <Info k="Date" v={fmtDate(selectedLog.date || selectedLog.created_at)} />
+                <Info k="Status" v={<StatusBadge status={selectedLog.status} />} />
+                <Info k={isAdmin ? "Customer cost" : "Cost"} v={`${num(selectedLog.customer_cost ?? selectedLog.cost).toFixed(4)} €`} />
+                <Info k="Route / direction" v={selectedLog.direction || "—"} />
+                {isAdmin && <Info k="Provider cost" v={`${num(selectedLog.provider_cost).toFixed(4)} €`} />}
+                {isAdmin && <Info k="Margin" v={`${num(selectedLog.margin).toFixed(4)} €`} />}
+              </div>
+              <div className="rounded-xl border border-border bg-card/50 p-4 whitespace-pre-wrap break-words text-sm">{selectedLog.message || ""}</div>
+              <Button variant="soft" onClick={() => { navigator.clipboard.writeText(selectedLog.message || ""); toast.success("Message copied"); }}>
+                <Copy className="w-4 h-4" /> Copy message
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
+}
+
+function Info({ k, v }: { k: string; v: any }) {
+  return <div><div className="text-xs text-muted-foreground">{k}</div><div className="font-medium break-words">{v}</div></div>;
 }
