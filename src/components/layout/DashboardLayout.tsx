@@ -15,6 +15,7 @@ const adminItems: Item[] = [
   { to: "/admin/routes", label: "Routes & Rates", icon: Map },
   { to: "/admin/logs", label: "SMS Logs", icon: FileText },
   { to: "/admin/diagnostics", label: "Diagnostics", icon: Activity },
+  { to: "/admin/errors", label: "Errors", icon: AlertTriangle },
   { to: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { to: "/admin/help", label: "Help & Guide", icon: HelpCircle },
   { to: "/admin/settings", label: "Settings", icon: Settings },
