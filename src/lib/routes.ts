@@ -16,11 +16,11 @@ export const ROUTE_CATALOG: RouteOption[] = [
   { option_id: "gamma",   label: "Route Gamma",   subtitle: "By country · Direct international",      family: "gamma" },
 ];
 
-// Internal option_id MUST stay aligned with the upstream catalog so sends
-// keep working. Only the human-visible label is rebranded — never expose the
-// upstream provider name in the UI.
+// Customer-facing option_id is fully neutral. The backend re-maps
+// `epsilon-sub-N` → upstream provider id transparently so the upstream
+// brand name never appears in any frontend network request.
 export const EPSILON_SUBROUTES = Array.from({ length: 13 }, (_, i) => ({
-  option_id: `epsilon-ttsky-${i + 1}`,
+  option_id: `epsilon-sub-${i + 1}`,
   label: `Sub ${i + 1}`,
 }));
 
