@@ -241,16 +241,6 @@ function routeTagFor(optionId) {
 }
 
 function safeUpstreamBody(body) {
-  if (!body || typeof body !== "object") return body;
-  const scrub = (value) => {
-    if (Array.isArray(value)) return value.map(scrub);
-    if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value).map(([k, v]) => (
-        /key|token|secret|authorization|password/i.test(k) ? [k, "[redacted]"] : [k, scrub(v)]
-      )));
-    }
-    return value;
-  };
   return scrub(body);
 }
 
