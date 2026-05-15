@@ -24,6 +24,7 @@ import Customers from "./pages/admin/Customers";
 import AuditLog from "./pages/admin/AuditLog";
 import AdminSettings from "./pages/admin/Settings";
 import AdminDiagnostics from "./pages/admin/Diagnostics";
+import AdminErrors from "./pages/admin/Errors";
 
 const queryClient = new QueryClient();
 const basename = (import.meta.env.VITE_APP_BASE_PATH as string | undefined) || "/";
