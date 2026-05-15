@@ -75,11 +75,26 @@ r.get("/available-routes", async (req, res, next) => {
     const wantsRaw = isAdmin && req.query.raw === "1";
 
     const markPrice = (p) => +(Number(p || 0) * mult).toFixed(4);
+    const sanitize = (s) =>
+      String(s || "")
+        .replace(/ttsky/gi, "Sub")
+        .replace(/skytelecom/gi, "Provider");
+    const sanitizeObj = (o) => {
+      const out = { ...o };
+      for (const k of ["label", "name", "channel_name", "subtitle", "description"]) {
+        if (out[k]) out[k] = sanitize(out[k]);
+      }
+      return out;
+    };
+
+    if (Array.isArray(data?.epsilon_subroutes)) {
+      data.epsilon_subroutes = data.epsilon_subroutes.map(sanitizeObj);
+    }
 
     if (data?.gamma_by_country && typeof data.gamma_by_country === "object") {
       for (const country of Object.keys(data.gamma_by_country)) {
         data.gamma_by_country[country] = (data.gamma_by_country[country] || []).map((c) => ({
-          ...c,
+          ...sanitizeObj(c),
           provider_price: wantsRaw ? Number(c.price || 0) : undefined,
           price: markPrice(c.price),
         }));
@@ -87,7 +102,7 @@ r.get("/available-routes", async (req, res, next) => {
     }
     if (Array.isArray(data?.gamma_options)) {
       data.gamma_options = data.gamma_options.map((c) => ({
-        ...c,
+        ...sanitizeObj(c),
         provider_price: wantsRaw ? Number(c.price || 0) : undefined,
         price: markPrice(c.price),
       }));
