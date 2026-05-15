@@ -38,7 +38,7 @@ export default function Help({ kind = "customer" }: { kind?: "customer" | "admin
               Cost-efficient general-purpose route. Good default for marketing campaigns.
             </Item>
             <Item title="Route Epsilon — High deliverability">
-              Multiple sub-routes (TTSKY 1–13). Pick a sub-route from the picker for fine-grained tuning.
+              Multiple sub-routes (Sub 1–13). Pick a sub-route from the picker for fine-grained tuning.
             </Item>
             <Item title="Route Gamma — Direct international">
               Country-specific, channel-specific pricing. Pick a country, then a channel. Use this when
