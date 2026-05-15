@@ -101,4 +101,16 @@ export const api = {
   stats: () => USE_MOCK ? mockApi.stats() : request("/admin/stats"),
   customerStats: () => USE_MOCK ? mockApi.customerStats() : request("/me/stats"),
   diagnostics: () => USE_MOCK ? mockApi.diagnostics() : request("/sms/diagnostics"),
+
+  // ---- Admin: error logs + customer history ----
+  errors: (params: { customer_id?: string; source?: string; resolved?: string; from?: string; to?: string; search?: string; limit?: number } = {}) =>
+    USE_MOCK ? mockApi.errors(params) : request(`/admin/errors?${new URLSearchParams(params as any).toString()}`),
+  updateError: (id: string, patch: { resolved?: boolean; admin_notes?: string }) =>
+    USE_MOCK ? mockApi.updateError(id, patch) : request(`/admin/errors/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  customerHistory: (id: string, params: { from?: string; to?: string; status?: string; recipient?: string; sender_id?: string; route?: string; limit?: number } = {}) =>
+    USE_MOCK ? mockApi.customerHistory(id, params) : request(`/admin/customers/${id}/history?${new URLSearchParams(params as any).toString()}`),
+  exportCustomerHistory: (id: string) =>
+    USE_MOCK ? mockApi.exportCustomerHistory(id) : download(`/admin/customers/${id}/history/export`),
+  reportClientError: (payload: any) =>
+    USE_MOCK ? Promise.resolve({ ok: true }) : request("/me/error", { method: "POST", body: JSON.stringify(payload) }).catch(() => ({ ok: false })),
 };

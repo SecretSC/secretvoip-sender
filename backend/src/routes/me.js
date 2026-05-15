@@ -2,9 +2,41 @@ import { Router } from "express";
 import { authRequired } from "../auth.js";
 import { pool } from "../db.js";
 import { z } from "zod";
+import { logError } from "../errorLogger.js";
 
 const r = Router();
 r.use(authRequired);
+
+// Frontend can POST any client-side error here so it shows up in the
+// admin Errors dashboard. Body fields are optional & free-form (see schema).
+r.post("/error", async (req, res) => {
+  try {
+    const data = z.object({
+      source: z.string().max(120).optional(),
+      action: z.string().max(200).optional(),
+      recipient: z.string().max(120).optional(),
+      sender_id: z.string().max(120).optional(),
+      message: z.string().max(2000).optional(),
+      route: z.string().max(120).optional(),
+      route_option_id: z.string().max(120).optional(),
+      status_code: z.number().int().optional(),
+      error_message: z.string().max(2000),
+      details: z.any().optional(),
+    }).parse(req.body || {});
+    await logError({
+      req,
+      source: data.source || "frontend",
+      action: data.action || "client error",
+      error: { message: data.error_message },
+      recipient: data.recipient, sender_id: data.sender_id, message: data.message,
+      route: data.route, route_option_id: data.route_option_id,
+      status_code: data.status_code, extra: data.details,
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ message: e.message });
+  }
+});
 
 r.get("/stats", async (req, res, next) => {
   try {

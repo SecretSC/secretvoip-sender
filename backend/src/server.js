@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.js";
 import smsRoutes from "./routes/sms.js";
 import adminRoutes from "./routes/admin.js";
 import meRoutes from "./routes/me.js";
+import { logError } from "./errorLogger.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -24,8 +25,16 @@ app.use("/api/sms", smsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/me", meRoutes);
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error(err);
+  // Persist every uncaught backend exception for the admin Errors page.
+  logError({
+    req,
+    source: req?.originalUrl || "backend",
+    action: `${req?.method || ""} ${req?.originalUrl || ""}`.trim(),
+    error: err,
+    status_code: err?.status || 500,
+  });
   res.status(err.status || 500).json({ message: err.message || "Server error" });
 });
 

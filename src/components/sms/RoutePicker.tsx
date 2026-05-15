@@ -63,7 +63,7 @@ export default function RoutePicker({
 
                   {active && r.family === "epsilon" && (
                     <div className="text-xs mt-2 text-secondary-glow">
-                      {value.kind === "epsilon" && value.subroute ? `Sub-route: ${value.subroute.label}` : "Pick a TTSKY sub-route →"}
+                      {value.kind === "epsilon" && value.subroute ? `Sub-route: ${value.subroute.label}` : "Pick a sub-route →"}
                     </div>
                   )}
                   {active && r.family === "gamma" && (

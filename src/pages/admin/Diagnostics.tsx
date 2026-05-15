@@ -29,6 +29,7 @@ type Diag = {
   gamma_country_count: number;
   epsilon_subroute_count: number;
   route_options?: Record<string, any[]>;
+  warnings?: { family: string; message: string }[];
   checked_at: string;
 };
 

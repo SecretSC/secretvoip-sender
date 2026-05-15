@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authRequired } from "../auth.js";
 import { upstream } from "../upstream.js";
 import { pool } from "../db.js";
+import { logError, scrub } from "../errorLogger.js";
 
 const r = Router();
 r.use(authRequired);
@@ -74,11 +75,26 @@ r.get("/available-routes", async (req, res, next) => {
     const wantsRaw = isAdmin && req.query.raw === "1";
 
     const markPrice = (p) => +(Number(p || 0) * mult).toFixed(4);
+    const sanitize = (s) =>
+      String(s || "")
+        .replace(/ttsky/gi, "Sub")
+        .replace(/skytelecom/gi, "Provider");
+    const sanitizeObj = (o) => {
+      const out = { ...o };
+      for (const k of ["label", "name", "channel_name", "subtitle", "description"]) {
+        if (out[k]) out[k] = sanitize(out[k]);
+      }
+      return out;
+    };
+
+    if (Array.isArray(data?.epsilon_subroutes)) {
+      data.epsilon_subroutes = data.epsilon_subroutes.map(sanitizeObj);
+    }
 
     if (data?.gamma_by_country && typeof data.gamma_by_country === "object") {
       for (const country of Object.keys(data.gamma_by_country)) {
         data.gamma_by_country[country] = (data.gamma_by_country[country] || []).map((c) => ({
-          ...c,
+          ...sanitizeObj(c),
           provider_price: wantsRaw ? Number(c.price || 0) : undefined,
           price: markPrice(c.price),
         }));
@@ -86,7 +102,7 @@ r.get("/available-routes", async (req, res, next) => {
     }
     if (Array.isArray(data?.gamma_options)) {
       data.gamma_options = data.gamma_options.map((c) => ({
-        ...c,
+        ...sanitizeObj(c),
         provider_price: wantsRaw ? Number(c.price || 0) : undefined,
         price: markPrice(c.price),
       }));
@@ -118,6 +134,14 @@ r.post("/send", async (req, res, next) => {
       );
       const currentBalance = Number(balRows[0]?.balance_eur ?? 0);
       if (currentBalance <= 0) {
+        await logError({
+          req, source: "send-sms", action: "POST /api/sms/send",
+          error: new Error("Insufficient balance"),
+          recipient: Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to,
+          sender_id: req.body.sender_id, message: req.body.message,
+          route_option_id: req.body.route_option_id, status_code: 402,
+          extra: { balance_eur: currentBalance },
+        });
         return res.status(402).json({
           message: "Insufficient balance. Please top up your wallet to send SMS.",
           balance_eur: currentBalance,
@@ -214,6 +238,14 @@ r.post("/send", async (req, res, next) => {
     });
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch {}
+    await logError({
+      req, source: "send-sms", action: "POST /api/sms/send",
+      error: e,
+      recipient: Array.isArray(req.body?.to) ? req.body.to.join(",") : req.body?.to,
+      sender_id: req.body?.sender_id, message: req.body?.message,
+      route_option_id: req.body?.route_option_id,
+      status_code: e?.status || 500,
+    });
     next(e);
   } finally {
     client.release();
@@ -227,11 +259,12 @@ function routeTagFor(optionId) {
   if (id === "alpha")   return "ROUTE ALPHA";
   if (id === "beta")    return "ROUTE BETA";
   if (id === "epsilon") return "ROUTE EPSILON";
-  if (id.startsWith("epsilon-ttsky-")) {
-    return `ROUTE EPSILON ${id.replace("epsilon-ttsky-", "TTSKY ").toUpperCase()}`;
-  }
+  // Internal id may still be `epsilon-ttsky-N` or `epsilon-sub-N`. Always
+  // expose a neutral, branded label that does not leak the upstream provider.
+  const epsMatch = id.match(/^epsilon-(?:ttsky|sub)-(\d+)$/);
+  if (epsMatch) return `ROUTE EPSILON SUB ${epsMatch[1]}`;
+  if (id.startsWith("epsilon-")) return `ROUTE EPSILON ${id.replace(/^epsilon-/, "").toUpperCase()}`;
   if (id.startsWith("gamma-")) {
-    // gamma-denmark-ch12  ->  GAMMA DENMARK CH12
     const rest = id.replace(/^gamma-/, "").replace(/-/g, " ").toUpperCase();
     return `GAMMA ${rest}`;
   }
@@ -239,16 +272,6 @@ function routeTagFor(optionId) {
 }
 
 function safeUpstreamBody(body) {
-  if (!body || typeof body !== "object") return body;
-  const scrub = (value) => {
-    if (Array.isArray(value)) return value.map(scrub);
-    if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value).map(([k, v]) => (
-        /key|token|secret|authorization|password/i.test(k) ? [k, "[redacted]"] : [k, scrub(v)]
-      )));
-    }
-    return value;
-  };
   return scrub(body);
 }
 
@@ -362,6 +385,12 @@ r.post("/test", async (req, res, next) => {
           safe_response: req.user.role === "admin" ? safeUpstreamBody(r) : undefined,
         });
       } catch (e) {
+        await logError({
+          req, source: "route-tester", action: "POST /api/sms/test",
+          error: e, recipient: to, sender_id: req.body.sender_id,
+          message: taggedMessage, route: tag, route_option_id: routeId,
+          status_code: e?.status || 500,
+        });
         results.push({
           route: routeId,
           status: "failed",
@@ -433,6 +462,42 @@ r.get("/diagnostics", async (req, res, next) => {
 
     const mult = await getMarkupMultiplier();
 
+    // Sanitize labels exposed to admin UI: never include upstream provider
+    // brand names. Always re-label e.g. "TTSKY 3" -> "Sub-route 3".
+    const sanitizeLabel = (s) =>
+      String(s || "")
+        .replace(/ttsky/gi, "Sub")
+        .replace(/skytelecom/gi, "Provider");
+    const sanitizeOpt = (o) => ({
+      ...o,
+      option_id: o.option_id,
+      label: sanitizeLabel(o.label || o.name || o.channel_name || o.option_id),
+      route_tag: routeTagFor(o.option_id),
+    });
+
+    const epsilonSubs = (Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : [])
+      .map((x) => ({ ...sanitizeOpt(x), available: true }));
+    const gammaOpts = (Array.isArray(data?.gamma_options)
+      ? data.gamma_options
+      : Object.values(data?.gamma_by_country || {}).flat()
+    ).map((x) => ({ ...sanitizeOpt(x), available: true }));
+
+    // Detect mismatches: a route family the UI advertises but upstream did not
+    // actually return any option for. Helps diagnose silent route failures.
+    const warnings = [];
+    if (data && epsilonSubs.length === 0) {
+      warnings.push({
+        family: "epsilon",
+        message: "No Epsilon sub-routes detected from upstream. Sub-route picks may fall back to base Epsilon.",
+      });
+    }
+    if (data && gammaOpts.length === 0) {
+      warnings.push({
+        family: "gamma",
+        message: "No Gamma channels detected from upstream. Gamma sends may fail.",
+      });
+    }
+
     res.json({
       upstream_ok: upstreamOk,
       upstream_error: upstreamError,
@@ -442,25 +507,25 @@ r.get("/diagnostics", async (req, res, next) => {
       markup_multiplier: mult,
       families,
       route_options: {
-        alpha: [{ option_id: "alpha", available: families.alpha }],
-        beta: [{ option_id: "beta", available: families.beta }],
+        alpha:   [{ option_id: "alpha",   label: "Route Alpha",   available: families.alpha,   route_tag: "ROUTE ALPHA" }],
+        beta:    [{ option_id: "beta",    label: "Route Beta",    available: families.beta,    route_tag: "ROUTE BETA" }],
         epsilon: [
-          { option_id: "epsilon", available: families.epsilon },
-          ...(Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : []).map((x) => ({ ...x, available: true })),
+          { option_id: "epsilon", label: "Route Epsilon", available: families.epsilon, route_tag: "ROUTE EPSILON" },
+          ...epsilonSubs,
         ],
-        gamma: Array.isArray(data?.gamma_options)
-          ? data.gamma_options.map((x) => ({ ...x, available: true }))
-          : Object.values(data?.gamma_by_country || {}).flat().map((x) => ({ ...x, available: true })),
+        gamma: gammaOpts,
       },
       gamma_country_count: data?.gamma_by_country
         ? Object.keys(data.gamma_by_country).length
         : 0,
-      epsilon_subroute_count: Array.isArray(data?.epsilon_subroutes)
-        ? data.epsilon_subroutes.length
-        : 0,
+      epsilon_subroute_count: epsilonSubs.length,
+      warnings,
       checked_at: new Date().toISOString(),
     });
-  } catch (e) { next(e); }
+  } catch (e) {
+    await logError({ req, source: "diagnostics", action: "GET /api/sms/diagnostics", error: e });
+    next(e);
+  }
 });
 
 r.get("/logs", async (req, res, next) => {

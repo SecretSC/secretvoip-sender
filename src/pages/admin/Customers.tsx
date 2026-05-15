@@ -8,8 +8,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { KeyRound, Plus, Trash2, UserCog, Wallet } from "lucide-react";
+import { KeyRound, Plus, Trash2, UserCog, Wallet, History } from "lucide-react";
 import TopUpDialog from "@/components/admin/TopUpDialog";
+import CustomerHistoryDialog from "@/components/admin/CustomerHistoryDialog";
 
 export default function Customers() {
   const [list, setList] = useState<any[]>([]);
@@ -17,6 +18,7 @@ export default function Customers() {
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", mustChangePassword: true });
   const [topUpFor, setTopUpFor] = useState<any | null>(null);
+  const [historyFor, setHistoryFor] = useState<any | null>(null);
 
   const load = () => api.customers().then((r: any) => setList(r));
   useEffect(() => { load(); }, []);
@@ -67,6 +69,9 @@ export default function Customers() {
                       <Button size="sm" variant="hero" onClick={() => setTopUpFor(u)} title="Top up balance">
                         <Wallet className="w-3.5 h-3.5" /> Top up
                       </Button>
+                      <Button size="sm" variant="soft" onClick={() => setHistoryFor(u)} title="View SMS history">
+                        <History className="w-3.5 h-3.5" /> History
+                      </Button>
                       <Button size="sm" variant="soft" onClick={() => reset(u)} title="Reset password"><KeyRound className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => toggleSuspend(u)} title={u.status === "active" ? "Suspend" : "Activate"}><UserCog className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => remove(u)} title="Delete"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
@@ -85,6 +90,12 @@ export default function Customers() {
         open={!!topUpFor}
         onOpenChange={(v) => !v && setTopUpFor(null)}
         onUpdated={load}
+      />
+
+      <CustomerHistoryDialog
+        customer={historyFor}
+        open={!!historyFor}
+        onOpenChange={(v) => !v && setHistoryFor(null)}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

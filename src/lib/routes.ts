@@ -16,9 +16,12 @@ export const ROUTE_CATALOG: RouteOption[] = [
   { option_id: "gamma",   label: "Route Gamma",   subtitle: "By country · Direct international",      family: "gamma" },
 ];
 
+// Customer-facing option_id is fully neutral. The backend re-maps
+// `epsilon-sub-N` → upstream provider id transparently so the upstream
+// brand name never appears in any frontend network request.
 export const EPSILON_SUBROUTES = Array.from({ length: 13 }, (_, i) => ({
-  option_id: `epsilon-ttsky-${i + 1}`,
-  label: `TTSKY ${i + 1}`,
+  option_id: `epsilon-sub-${i + 1}`,
+  label: `Sub ${i + 1}`,
 }));
 
 export type GammaChannel = { option_id: string; name: string; price: number };
