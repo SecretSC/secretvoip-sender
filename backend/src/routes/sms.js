@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authRequired } from "../auth.js";
 import { upstream } from "../upstream.js";
 import { pool } from "../db.js";
+import { logError, scrub } from "../errorLogger.js";
 
 const r = Router();
 r.use(authRequired);
