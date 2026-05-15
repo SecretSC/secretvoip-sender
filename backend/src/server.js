@@ -25,8 +25,16 @@ app.use("/api/sms", smsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/me", meRoutes);
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error(err);
+  // Persist every uncaught backend exception for the admin Errors page.
+  logError({
+    req,
+    source: req?.originalUrl || "backend",
+    action: `${req?.method || ""} ${req?.originalUrl || ""}`.trim(),
+    error: err,
+    status_code: err?.status || 500,
+  });
   res.status(err.status || 500).json({ message: err.message || "Server error" });
 });
 
