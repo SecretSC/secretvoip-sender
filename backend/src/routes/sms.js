@@ -447,6 +447,42 @@ r.get("/diagnostics", async (req, res, next) => {
 
     const mult = await getMarkupMultiplier();
 
+    // Sanitize labels exposed to admin UI: never include upstream provider
+    // brand names. Always re-label e.g. "TTSKY 3" -> "Sub-route 3".
+    const sanitizeLabel = (s) =>
+      String(s || "")
+        .replace(/ttsky/gi, "Sub")
+        .replace(/skytelecom/gi, "Provider");
+    const sanitizeOpt = (o) => ({
+      ...o,
+      option_id: o.option_id,
+      label: sanitizeLabel(o.label || o.name || o.channel_name || o.option_id),
+      route_tag: routeTagFor(o.option_id),
+    });
+
+    const epsilonSubs = (Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : [])
+      .map((x) => ({ ...sanitizeOpt(x), available: true }));
+    const gammaOpts = (Array.isArray(data?.gamma_options)
+      ? data.gamma_options
+      : Object.values(data?.gamma_by_country || {}).flat()
+    ).map((x) => ({ ...sanitizeOpt(x), available: true }));
+
+    // Detect mismatches: a route family the UI advertises but upstream did not
+    // actually return any option for. Helps diagnose silent route failures.
+    const warnings = [];
+    if (data && epsilonSubs.length === 0) {
+      warnings.push({
+        family: "epsilon",
+        message: "No Epsilon sub-routes detected from upstream. Sub-route picks may fall back to base Epsilon.",
+      });
+    }
+    if (data && gammaOpts.length === 0) {
+      warnings.push({
+        family: "gamma",
+        message: "No Gamma channels detected from upstream. Gamma sends may fail.",
+      });
+    }
+
     res.json({
       upstream_ok: upstreamOk,
       upstream_error: upstreamError,
@@ -456,25 +492,25 @@ r.get("/diagnostics", async (req, res, next) => {
       markup_multiplier: mult,
       families,
       route_options: {
-        alpha: [{ option_id: "alpha", available: families.alpha }],
-        beta: [{ option_id: "beta", available: families.beta }],
+        alpha:   [{ option_id: "alpha",   label: "Route Alpha",   available: families.alpha,   route_tag: "ROUTE ALPHA" }],
+        beta:    [{ option_id: "beta",    label: "Route Beta",    available: families.beta,    route_tag: "ROUTE BETA" }],
         epsilon: [
-          { option_id: "epsilon", available: families.epsilon },
-          ...(Array.isArray(data?.epsilon_subroutes) ? data.epsilon_subroutes : []).map((x) => ({ ...x, available: true })),
+          { option_id: "epsilon", label: "Route Epsilon", available: families.epsilon, route_tag: "ROUTE EPSILON" },
+          ...epsilonSubs,
         ],
-        gamma: Array.isArray(data?.gamma_options)
-          ? data.gamma_options.map((x) => ({ ...x, available: true }))
-          : Object.values(data?.gamma_by_country || {}).flat().map((x) => ({ ...x, available: true })),
+        gamma: gammaOpts,
       },
       gamma_country_count: data?.gamma_by_country
         ? Object.keys(data.gamma_by_country).length
         : 0,
-      epsilon_subroute_count: Array.isArray(data?.epsilon_subroutes)
-        ? data.epsilon_subroutes.length
-        : 0,
+      epsilon_subroute_count: epsilonSubs.length,
+      warnings,
       checked_at: new Date().toISOString(),
     });
-  } catch (e) { next(e); }
+  } catch (e) {
+    await logError({ req, source: "diagnostics", action: "GET /api/sms/diagnostics", error: e });
+    next(e);
+  }
 });
 
 r.get("/logs", async (req, res, next) => {
