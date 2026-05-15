@@ -21,7 +21,7 @@ export default function EpsilonSubrouteModal({
             <Radar className="w-5 h-5 text-primary-glow" /> Route Epsilon — Select sub-route
           </DialogTitle>
           <DialogDescription>
-            Pick a TTSKY sub-route. Per-sub-route route testing is enabled only when supported by the upstream backend —
+            Pick an Epsilon sub-route. Per-sub-route testing is enabled only when supported by the backend —
             otherwise tests fall back to the main Epsilon route.
           </DialogDescription>
         </DialogHeader>
