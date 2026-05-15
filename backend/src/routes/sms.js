@@ -223,6 +223,14 @@ r.post("/send", async (req, res, next) => {
     });
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch {}
+    await logError({
+      req, source: "send-sms", action: "POST /api/sms/send",
+      error: e,
+      recipient: Array.isArray(req.body?.to) ? req.body.to.join(",") : req.body?.to,
+      sender_id: req.body?.sender_id, message: req.body?.message,
+      route_option_id: req.body?.route_option_id,
+      status_code: e?.status || 500,
+    });
     next(e);
   } finally {
     client.release();
