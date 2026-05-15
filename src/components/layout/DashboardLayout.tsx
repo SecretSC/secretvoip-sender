@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Send, Radar, Map, FileText, ScrollText, Settings, Users,
-  LogOut, ShieldCheck, User as UserIcon, Zap, HelpCircle, Activity,
+  LogOut, ShieldCheck, User as UserIcon, Zap, HelpCircle, Activity, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
