@@ -86,7 +86,8 @@ export default function RouteTester() {
   };
 
   const labelFor = (id: string) => {
-    if (id.startsWith("epsilon-")) return `Epsilon · ${id.replace("epsilon-ttsky-", "TTSKY ")}`;
+    if (id.startsWith("epsilon-"))
+      return `Epsilon · ${id.replace("epsilon-sub-", "Sub ").replace("epsilon-ttsky-", "Sub ")}`;
     if (id.startsWith("gamma-")) return `Gamma · ${id.replace("gamma-", "")}`;
     const r = ROUTE_CATALOG.find((x) => x.option_id === id);
     return r?.label || id;
