@@ -129,3 +129,32 @@ CREATE TABLE IF NOT EXISTS sms_templates (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_sms_templates_customer_date ON sms_templates (customer_id, updated_at DESC);
+
+-- Centralised error log for the admin "Errors" dashboard.
+CREATE TABLE IF NOT EXISTS error_logs (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+  customer_email     TEXT,
+  source             TEXT,
+  action             TEXT,
+  recipient          TEXT,
+  sender_id          TEXT,
+  message            TEXT,
+  route              TEXT,
+  route_option_id    TEXT,
+  status_code        INTEGER,
+  error_message      TEXT,
+  safe_details       JSONB,
+  likely_cause       TEXT,
+  suggested_solution TEXT,
+  resolved           BOOLEAN NOT NULL DEFAULT false,
+  admin_notes        TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_error_logs_date     ON error_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_logs_customer ON error_logs (customer_id);
+CREATE INDEX IF NOT EXISTS idx_error_logs_resolved ON error_logs (resolved);
+CREATE INDEX IF NOT EXISTS idx_error_logs_source   ON error_logs (source);
+ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS resolved BOOLEAN NOT NULL DEFAULT false;
