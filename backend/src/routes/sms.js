@@ -119,6 +119,14 @@ r.post("/send", async (req, res, next) => {
       );
       const currentBalance = Number(balRows[0]?.balance_eur ?? 0);
       if (currentBalance <= 0) {
+        await logError({
+          req, source: "send-sms", action: "POST /api/sms/send",
+          error: new Error("Insufficient balance"),
+          recipient: Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to,
+          sender_id: req.body.sender_id, message: req.body.message,
+          route_option_id: req.body.route_option_id, status_code: 402,
+          extra: { balance_eur: currentBalance },
+        });
         return res.status(402).json({
           message: "Insufficient balance. Please top up your wallet to send SMS.",
           balance_eur: currentBalance,
