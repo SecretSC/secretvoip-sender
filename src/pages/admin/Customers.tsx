@@ -69,6 +69,9 @@ export default function Customers() {
                       <Button size="sm" variant="hero" onClick={() => setTopUpFor(u)} title="Top up balance">
                         <Wallet className="w-3.5 h-3.5" /> Top up
                       </Button>
+                      <Button size="sm" variant="soft" onClick={() => setHistoryFor(u)} title="View SMS history">
+                        <History className="w-3.5 h-3.5" /> History
+                      </Button>
                       <Button size="sm" variant="soft" onClick={() => reset(u)} title="Reset password"><KeyRound className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => toggleSuspend(u)} title={u.status === "active" ? "Suspend" : "Activate"}><UserCog className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="soft" onClick={() => remove(u)} title="Delete"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
