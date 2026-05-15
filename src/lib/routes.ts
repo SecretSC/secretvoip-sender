@@ -16,9 +16,12 @@ export const ROUTE_CATALOG: RouteOption[] = [
   { option_id: "gamma",   label: "Route Gamma",   subtitle: "By country · Direct international",      family: "gamma" },
 ];
 
+// Internal option_ids stay backward-compatible with the upstream catalog
+// (epsilon-ttsky-N still works server-side), but the customer-facing labels
+// must never expose the upstream provider name.
 export const EPSILON_SUBROUTES = Array.from({ length: 13 }, (_, i) => ({
-  option_id: `epsilon-ttsky-${i + 1}`,
-  label: `TTSKY ${i + 1}`,
+  option_id: `epsilon-sub-${i + 1}`,
+  label: `Sub ${i + 1}`,
 }));
 
 export type GammaChannel = { option_id: string; name: string; price: number };
