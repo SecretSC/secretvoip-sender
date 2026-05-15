@@ -153,4 +153,114 @@ r.get("/stats", async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------- Error logs ----------
+r.get("/errors", async (req, res, next) => {
+  try {
+    const params = [];
+    let where = "WHERE 1=1";
+    if (req.query.customer_id) { params.push(req.query.customer_id); where += ` AND customer_id = $${params.length}`; }
+    if (req.query.source && req.query.source !== "all") { params.push(req.query.source); where += ` AND source = $${params.length}`; }
+    if (req.query.resolved === "true")  { where += ` AND resolved = true`; }
+    if (req.query.resolved === "false") { where += ` AND resolved = false`; }
+    if (req.query.from) { params.push(req.query.from); where += ` AND created_at >= $${params.length}::date`; }
+    if (req.query.to)   { params.push(req.query.to);   where += ` AND created_at <= ($${params.length}::date + interval '1 day')`; }
+    if (req.query.search) {
+      params.push(`%${req.query.search}%`);
+      where += ` AND (error_message ILIKE $${params.length} OR action ILIKE $${params.length} OR recipient ILIKE $${params.length} OR customer_email ILIKE $${params.length})`;
+    }
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 100));
+    const { rows } = await pool.query(
+      `SELECT * FROM error_logs ${where} ORDER BY created_at DESC LIMIT ${limit}`, params
+    );
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int n FROM error_logs ${where}`, params);
+    const { rows: stats } = await pool.query(
+      `SELECT COUNT(*)::int total,
+              COUNT(*) FILTER (WHERE resolved=false)::int unresolved,
+              COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::int last24h
+         FROM error_logs`
+    );
+    res.json({ data: rows, total: cnt[0].n, stats: stats[0] });
+  } catch (e) { next(e); }
+});
+
+r.patch("/errors/:id", async (req, res, next) => {
+  try {
+    const patch = z.object({
+      resolved: z.boolean().optional(),
+      admin_notes: z.string().max(2000).optional(),
+    }).parse(req.body);
+    const fields = []; const values = []; let i = 1;
+    for (const [k, v] of Object.entries(patch)) { fields.push(`${k}=$${i++}`); values.push(v); }
+    if (!fields.length) return res.json({ ok: true });
+    fields.push(`updated_at=now()`);
+    values.push(req.params.id);
+    await pool.query(`UPDATE error_logs SET ${fields.join(",")} WHERE id=$${i}`, values);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ---------- Customer SMS history (read-only summary + rows) ----------
+r.get("/customers/:id/history", async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const params = [id];
+    let where = `WHERE l.customer_id = $1`;
+    if (req.query.from)   { params.push(req.query.from);   where += ` AND l.created_at >= $${params.length}::date`; }
+    if (req.query.to)     { params.push(req.query.to);     where += ` AND l.created_at <= ($${params.length}::date + interval '1 day')`; }
+    if (req.query.status && req.query.status !== "all") { params.push(req.query.status); where += ` AND l.status = $${params.length}`; }
+    if (req.query.recipient) { params.push(`%${req.query.recipient}%`); where += ` AND l.recipient ILIKE $${params.length}`; }
+    if (req.query.sender_id) { params.push(`%${req.query.sender_id}%`); where += ` AND l.sender_id ILIKE $${params.length}`; }
+    if (req.query.route)     { params.push(`%${req.query.route}%`);     where += ` AND l.direction ILIKE $${params.length}`; }
+
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit, 10) || 200));
+    const { rows } = await pool.query(
+      `SELECT l.id, l.upstream_id, l.recipient, l.sender_id, l.segments,
+              l.cost, l.provider_cost, l.customer_cost, l.margin,
+              l.status, l.message, l.direction, l.created_at
+         FROM sms_logs_cache l
+         ${where}
+         ORDER BY l.created_at DESC
+         LIMIT ${limit}`, params
+    );
+    const { rows: sum } = await pool.query(
+      `SELECT COUNT(*)::int total,
+              COUNT(*) FILTER (WHERE status='sent')::int sent,
+              COUNT(*) FILTER (WHERE status='delivered')::int delivered,
+              COUNT(*) FILTER (WHERE status='failed')::int failed,
+              COALESCE(SUM(customer_cost), SUM(cost))::numeric(12,4) charged_total,
+              COALESCE(SUM(provider_cost), 0)::numeric(12,4)         provider_total,
+              COALESCE(SUM(margin), 0)::numeric(12,4)                margin_total
+         FROM sms_logs_cache l ${where}`, params
+    );
+    res.json({ data: rows, summary: sum[0] });
+  } catch (e) { next(e); }
+});
+
+r.get("/customers/:id/history/export", async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const { rows } = await pool.query(
+      `SELECT l.created_at, l.recipient, l.sender_id, l.message, l.segments,
+              l.status, l.provider_cost, l.customer_cost, l.cost, l.margin, l.direction
+         FROM sms_logs_cache l WHERE l.customer_id=$1
+         ORDER BY l.created_at DESC`, [id]
+    );
+    const esc = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const headers = ["date","recipient","sender_id","message","segments","status","provider_cost","customer_cost","margin","direction"];
+    const lines = [headers.join(",")];
+    for (const r of rows) {
+      lines.push([r.created_at, r.recipient, r.sender_id, r.message, r.segments, r.status,
+        Number(r.provider_cost || 0).toFixed(4),
+        Number(r.customer_cost ?? r.cost ?? 0).toFixed(4),
+        Number(r.margin || 0).toFixed(4), r.direction].map(esc).join(","));
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="customer-${id}-history.csv"`);
+    res.send(lines.join("\n"));
+  } catch (e) { next(e); }
+});
+
 export default r;
