@@ -474,4 +474,17 @@ export const mockApi = {
       checked_at: new Date().toISOString(),
     });
   },
+  async errors(_params: any = {}) {
+    return delay({ data: [], total: 0, stats: { total: 0, unresolved: 0, last24h: 0 } });
+  },
+  async updateError(_id: string, _patch: any) { return delay({ ok: true }); },
+  async customerHistory(_id: string, _params: any = {}) {
+    return delay({
+      data: [],
+      summary: { total: 0, sent: 0, delivered: 0, failed: 0, charged_total: 0, provider_total: 0, margin_total: 0 },
+    });
+  },
+  async exportCustomerHistory(_id: string) {
+    return new Blob(["date,recipient,sender_id,message,segments,status,provider_cost,customer_cost,margin,direction\n"], { type: "text/csv" });
+  },
 };
