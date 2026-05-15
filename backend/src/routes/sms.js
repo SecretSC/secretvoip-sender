@@ -228,11 +228,12 @@ function routeTagFor(optionId) {
   if (id === "alpha")   return "ROUTE ALPHA";
   if (id === "beta")    return "ROUTE BETA";
   if (id === "epsilon") return "ROUTE EPSILON";
-  if (id.startsWith("epsilon-ttsky-")) {
-    return `ROUTE EPSILON ${id.replace("epsilon-ttsky-", "TTSKY ").toUpperCase()}`;
-  }
+  // Internal id may still be `epsilon-ttsky-N` or `epsilon-sub-N`. Always
+  // expose a neutral, branded label that does not leak the upstream provider.
+  const epsMatch = id.match(/^epsilon-(?:ttsky|sub)-(\d+)$/);
+  if (epsMatch) return `ROUTE EPSILON SUB ${epsMatch[1]}`;
+  if (id.startsWith("epsilon-")) return `ROUTE EPSILON ${id.replace(/^epsilon-/, "").toUpperCase()}`;
   if (id.startsWith("gamma-")) {
-    // gamma-denmark-ch12  ->  GAMMA DENMARK CH12
     const rest = id.replace(/^gamma-/, "").replace(/-/g, " ").toUpperCase();
     return `GAMMA ${rest}`;
   }
