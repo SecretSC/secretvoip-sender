@@ -370,6 +370,12 @@ r.post("/test", async (req, res, next) => {
           safe_response: req.user.role === "admin" ? safeUpstreamBody(r) : undefined,
         });
       } catch (e) {
+        await logError({
+          req, source: "route-tester", action: "POST /api/sms/test",
+          error: e, recipient: to, sender_id: req.body.sender_id,
+          message: taggedMessage, route: tag, route_option_id: routeId,
+          status_code: e?.status || 500,
+        });
         results.push({
           route: routeId,
           status: "failed",
