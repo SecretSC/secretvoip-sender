@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.js";
 import smsRoutes from "./routes/sms.js";
 import adminRoutes from "./routes/admin.js";
 import meRoutes from "./routes/me.js";
+import { logError } from "./errorLogger.js";
 
 const app = express();
 app.disable("x-powered-by");
