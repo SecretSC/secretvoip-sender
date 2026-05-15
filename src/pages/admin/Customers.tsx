@@ -92,6 +92,12 @@ export default function Customers() {
         onUpdated={load}
       />
 
+      <CustomerHistoryDialog
+        customer={historyFor}
+        open={!!historyFor}
+        onOpenChange={(v) => !v && setHistoryFor(null)}
+      />
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="glass-strong border-border">
           <DialogHeader>
