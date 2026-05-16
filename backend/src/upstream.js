@@ -45,7 +45,11 @@ async function call(path, init = {}) {
   const text = await res.text();
   let body; try { body = JSON.parse(text); } catch { body = { raw: text }; }
   if (!res.ok) {
-    const err = new Error(body?.message || `Upstream error ${res.status}`);
+    const rawMsg = body?.message || `Upstream error ${res.status}`;
+    const safeMsg = String(rawMsg)
+      .replace(/ttsky/gi, "Sub")
+      .replace(/skytelecom/gi, "Provider");
+    const err = new Error(safeMsg);
     err.status = res.status;
     throw err;
   }
