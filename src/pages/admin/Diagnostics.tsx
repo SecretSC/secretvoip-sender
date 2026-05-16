@@ -207,6 +207,13 @@ export default function AdminDiagnostics() {
             <div className="text-[11px] text-muted-foreground mt-1 break-all">option_id: {probeRoute}</div>
           </div>
           <div>
+            <Label>Sender ID <span className="text-destructive">*</span></Label>
+            <Input value={probeSender} onChange={(e) => setProbeSender(e.target.value)} aria-invalid={!probeSenderCheck.ok} required />
+            <div className={`text-[11px] mt-1 ${probeSenderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+              {probeSenderCheck.ok ? SENDER_ID_HELP : (probeSenderCheck as any).message}
+            </div>
+          </div>
+          <div>
             <Label>Destination number</Label>
             <Input value={probeNumber} onChange={(e) => setProbeNumber(e.target.value)} placeholder="e.g. 4522304047" />
           </div>
@@ -214,12 +221,18 @@ export default function AdminDiagnostics() {
             <Label>Message</Label>
             <Textarea rows={3} value={probeMsg} onChange={(e) => setProbeMsg(e.target.value)} />
             <div className="text-[11px] text-muted-foreground mt-1">
-              The selected route tag will be appended automatically.
+              The selected route tag will be appended automatically. Sent message will be prefixed with "DIAGNOSTICS TEST".
             </div>
           </div>
-          <Button variant="hero" className="w-full" onClick={probe} disabled={probing}>
+          <Button
+            variant="hero"
+            className="w-full"
+            onClick={probe}
+            disabled={probing || !probeSenderCheck.ok || !probeNumber.trim()}
+            title={!probeSenderCheck.ok ? (probeSenderCheck as any).message : undefined}
+          >
             {probing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            {probing ? "Probing…" : "Run probe"}
+            {probing ? "Probing…" : !probeSenderCheck.ok ? "Add Sender ID to probe" : "Run probe"}
           </Button>
 
           {probeResult && (
