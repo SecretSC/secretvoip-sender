@@ -321,6 +321,67 @@ function safeUpstreamBody(body) {
   return scrub(body);
 }
 
+// ---- Robust upstream success detection ------------------------------------
+// Different upstream providers return wildly different success shapes:
+//   { messages: [{id, recipient, status}] }
+//   { results: [...] }     { data: [...] }   { sms: [...] }
+//   { success: true, message_id: "..." }     { status: "ok" }
+// Bulk customers reported delivered SMS being marked Failed because the old
+// code required `messages[0].id` + a whitelisted status string. We now:
+//   * normalise the response into a per-recipient array,
+//   * mark a message FAILED only on an explicit failure indicator
+//     (status in {failed,rejected,error,undelivered,invalid}, success:false,
+//     ok:false, or an `error`/`error_message` field),
+//   * otherwise treat it as accepted (queued/sent/pending) since the upstream
+//     HTTP call already returned 2xx (anything non-2xx throws upstream).
+const FAIL_RE = /^(failed|failure|rejected|error|errored|undelivered|invalid|denied|blocked)$/i;
+const OK_RE   = /^(sent|delivered|queued|accepted|pending|submitted|ok|success|processing|enroute)$/i;
+
+function normalizeUpstreamSend(raw, reqBody) {
+  const toField = reqBody?.to;
+  const recipients = Array.isArray(toField)
+    ? toField
+    : typeof toField === "string"
+      ? toField.split(",").map((s) => s.trim()).filter(Boolean)
+      : toField != null ? [toField] : [];
+
+  let arr = null;
+  if (Array.isArray(raw?.messages))      arr = raw.messages;
+  else if (Array.isArray(raw?.results))  arr = raw.results;
+  else if (Array.isArray(raw?.data))     arr = raw.data;
+  else if (Array.isArray(raw?.sms))      arr = raw.sms;
+  else if (Array.isArray(raw?.items))    arr = raw.items;
+
+  const topFailed =
+    raw && (raw.success === false || raw.ok === false ||
+      (typeof raw.status === "string" && FAIL_RE.test(raw.status)));
+
+  const source = (arr && arr.length ? arr : recipients.map((to) => ({ recipient: to })));
+  const messages = source.map((m, i) => {
+    const recipient =
+      m?.recipient || m?.to || m?.msisdn || m?.destination ||
+      m?.number || recipients[i] || recipients[0] || null;
+    const id = m?.id || m?.message_id || m?.uuid || m?.sms_id || raw?.message_id || raw?.id || null;
+    const rawStatus = String(m?.status || m?.state || m?.delivery_status || "").trim();
+    const explicitFail =
+      (rawStatus && FAIL_RE.test(rawStatus)) ||
+      m?.success === false || m?.accepted === false || m?.ok === false ||
+      !!m?.error || !!m?.error_message || topFailed;
+    const status = explicitFail
+      ? (rawStatus && FAIL_RE.test(rawStatus) ? rawStatus.toLowerCase() : "failed")
+      : (rawStatus && OK_RE.test(rawStatus) ? rawStatus.toLowerCase() : "queued");
+    return {
+      id,
+      recipient,
+      status,
+      accepted: !explicitFail,
+      error: explicitFail ? (m?.error_message || m?.error || raw?.message || undefined) : undefined,
+    };
+  });
+
+  return { messages };
+}
+
 function csvEscape(value) {
   const s = value == null ? "" : String(value);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
