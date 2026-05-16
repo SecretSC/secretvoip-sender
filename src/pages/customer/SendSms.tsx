@@ -325,10 +325,10 @@ export default function SendSms() {
                   <div key={t.id} className="rounded-xl border border-border bg-card/40 p-3 flex items-center justify-between gap-2">
                     <button className="min-w-0 text-left" onClick={() => loadTemplate(t.id)}>
                       <div className="text-sm font-medium truncate">{t.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{t.sender_id}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">{t.sender_id || "—"}</div>
                     </button>
                     <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" onClick={() => { setEditingTemplate(t); setTemplateName(t.name); setSender(t.sender_id); setMessage(t.message); setTemplateDialog(true); }}>Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setEditingTemplate(t); setTemplateName(t.name); setSender(t.sender_id || ""); setMessage(t.message); setTemplateDialog(true); }}>Edit</Button>
                       <Button variant="ghost" size="sm" onClick={() => deleteTemplate(t.id)}><Trash2 className="w-4 h-4" /></Button>
                     </div>
                   </div>
