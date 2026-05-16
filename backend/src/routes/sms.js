@@ -492,17 +492,17 @@ r.post("/test", testLimiter, async (req, res) => {
       const taggedMessage = `${diagPrefix}${baseMsg} - ${tag}`;
       try {
         // No long-lived pool client: upstream HTTP must not pin a pg client.
-        const r = sanitizeOutbound(await upstream.send({
-          to,
-          message: taggedMessage,
-          sender_id: senderId,
-          route_option_id: routeId,
-        }));
-        const latency_ms = Date.now() - startedAt;
-        const upstreamId = r.messages?.[0]?.id || null;
-        const upstreamStatus = r.messages?.[0]?.status || r.status || null;
-        const accepted = !!upstreamId && /^(sent|delivered|queued|accepted)$/i.test(String(upstreamStatus || ""));
+        const rawR = await upstream.send({
+          to, message: taggedMessage, sender_id: senderId, route_option_id: routeId,
+        });
+        const r = sanitizeOutbound(rawR);
+        const normR = normalizeUpstreamSend(r, { to, sender_id: senderId, route_option_id: routeId });
+        const first = normR.messages[0] || {};
+        const upstreamId = first.id || null;
+        const accepted   = !!first.accepted;
+        const upstreamStatus = first.status || (accepted ? "queued" : "failed");
         const finalStatus = accepted ? upstreamStatus : "failed";
+        const latency_ms = Date.now() - startedAt;
         const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
         const customer = +(provider * mult).toFixed(4);
         const margin   = +(customer - provider).toFixed(4);
