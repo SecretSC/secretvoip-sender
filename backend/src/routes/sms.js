@@ -366,20 +366,24 @@ r.post("/test", testLimiter, async (req, res, next) => {
     for (const routeId of testedRoutes) {
       const startedAt = Date.now();
       const tag = routeTagFor(routeId);
-      const taggedMessage = `${baseMsg} - ${tag}`;
+      const diagPrefix = isDiagnostics ? "DIAGNOSTICS TEST · " : "";
+      const taggedMessage = `${diagPrefix}${baseMsg} - ${tag}`;
       try {
-        const r = await upstream.send({
+        const r = sanitizeOutbound(await upstream.send({
           to,
           message: taggedMessage,
-          sender_id: req.body.sender_id || "SecretVoIP",
+          sender_id: senderId,
           route_option_id: routeId,
-        });
+        }));
         const latency_ms = Date.now() - startedAt;
+        const upstreamId = r.messages?.[0]?.id || null;
+        const upstreamStatus = r.messages?.[0]?.status || r.status || null;
+        // Only count as success if upstream explicitly accepted the message.
+        const accepted = !!upstreamId && /^(sent|delivered|queued|accepted)$/i.test(String(upstreamStatus || ""));
+        const finalStatus = accepted ? upstreamStatus : "failed";
         const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
         const customer = +(provider * mult).toFixed(4);
         const margin   = +(customer - provider).toFixed(4);
-        const upstreamId = r.messages?.[0]?.id || null;
-        const upstreamStatus = r.messages?.[0]?.status || r.status || "sent";
 
         // Persist the test as a normal SMS log so it appears in the customer logs.
         try {
@@ -390,15 +394,17 @@ r.post("/test", testLimiter, async (req, res, next) => {
                 status, message, direction)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
             [
-              upstreamId, req.user.sub, to, req.body.sender_id || "SecretVoIP",
-              1, customer, provider, customer, margin,
-              upstreamStatus, taggedMessage, `Route test · ${tag}`,
+              upstreamId, req.user.sub, to, senderId,
+              1, accepted ? customer : 0, accepted ? provider : 0,
+              accepted ? customer : 0, accepted ? margin : 0,
+              finalStatus, taggedMessage,
+              isDiagnostics ? `Diagnostics test · ${tag}` : `Route test · ${tag}`,
             ]
           );
         } catch {}
 
-        // Charge the customer for this real send.
-        if (isCustomer && customer > 0) {
+        // Charge the customer for this real send (skip for admin diagnostics).
+        if (isCustomer && accepted && customer > 0) {
           try {
             await client.query("BEGIN");
             await client.query(
@@ -413,7 +419,7 @@ r.post("/test", testLimiter, async (req, res, next) => {
             await client.query(
               `INSERT INTO wallet_transactions (customer_id, amount_eur, type, note, created_by)
                VALUES ($1, $2, 'charge', $3, 'system')`,
-              [req.user.sub, -customer, `Route test · ${tag} · to ${to}`]
+              [req.user.sub, -customer, `Route test · ${tag} · to ${redactPhone(to)}`]
             );
             await client.query("COMMIT");
           } catch {
@@ -423,22 +429,24 @@ r.post("/test", testLimiter, async (req, res, next) => {
 
         results.push({
           route: routeId,
-          status: upstreamStatus,
+          status: finalStatus,
           latency_ms,
-          cost: customer,
+          cost: accepted ? customer : 0,
           tag,
           provider_cost: req.user.role === "admin" ? provider : undefined,
           margin: req.user.role === "admin" ? margin : undefined,
           message_id: upstreamId,
           option_id: routeId,
           log_created: true,
-          wallet_transaction_created: isCustomer && customer > 0,
+          wallet_transaction_created: isCustomer && accepted && customer > 0,
+          diagnostics: isDiagnostics || undefined,
           safe_response: req.user.role === "admin" ? safeUpstreamBody(r) : undefined,
+          warning: !accepted ? "Upstream did not return a successful message id" : undefined,
         });
       } catch (e) {
         await logError({
           req, source: "route-tester", action: "POST /api/sms/test",
-          error: e, recipient: to, sender_id: req.body.sender_id,
+          error: e, recipient: redactPhone(to), sender_id: senderId,
           message: taggedMessage, route: tag, route_option_id: routeId,
           status_code: e?.status || 500,
         });
@@ -448,10 +456,11 @@ r.post("/test", testLimiter, async (req, res, next) => {
           latency_ms: Date.now() - startedAt,
           cost: 0,
           tag,
-          error: e?.message || "Upstream error",
+          error: sanitizeOutbound(e?.message || "Upstream error"),
           option_id: routeId,
           log_created: false,
           wallet_transaction_created: false,
+          diagnostics: isDiagnostics || undefined,
         });
       }
     }
@@ -469,7 +478,8 @@ r.post("/test", testLimiter, async (req, res, next) => {
     res.json({ status: "tested", results, wallet_balance: newBalance });
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch {}
-    next(e);
+    const safeMsg = sanitizeOutbound(e?.message || "Test failed");
+    return res.status(e?.status || 500).json({ message: safeMsg });
   } finally {
     client.release();
   }
