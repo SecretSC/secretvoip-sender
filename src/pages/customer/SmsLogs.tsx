@@ -125,7 +125,7 @@ export default function SmsLogs({ kind = "customer" }: { kind?: "customer" | "ad
                     <td className="py-2.5 px-4 text-xs text-muted-foreground">#{r.id}</td>
                     <td className="py-2.5 px-4 text-xs whitespace-nowrap">{fmtDate(r.date || r.created_at)}</td>
                     <td className="py-2.5 px-4 font-mono text-xs">{r.recipient}</td>
-                    <td className="py-2.5 px-4 text-xs">{r.sender_id}</td>
+                    <td className="py-2.5 px-4 text-xs">{r.sender_id || "—"}</td>
                     <td className="py-2.5 px-4 text-xs text-muted-foreground">{r.direction}</td>
                     <td className="py-2.5 px-4 max-w-[280px]">
                       <button className="truncate max-w-[260px] text-left hover:text-secondary-glow" onClick={() => setSelectedLog(r)}>
