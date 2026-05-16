@@ -3,9 +3,22 @@ import { authRequired } from "../auth.js";
 import { upstream } from "../upstream.js";
 import { pool } from "../db.js";
 import { logError, scrub } from "../errorLogger.js";
+import { validateSenderId, sanitizeOutbound, redactPhone } from "../validation.js";
+import rateLimit from "express-rate-limit";
 
 const r = Router();
 r.use(authRequired);
+
+// Rate limit live test/probe sends so a compromised account can't burn the
+// wallet or abuse the upstream. 20 test sends / 5 min / user.
+const testLimiter = rateLimit({
+  windowMs: 5 * 60_000,
+  max: 20,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many test sends. Please wait a moment and try again." },
+});
 
 // ---- Single source of truth for pricing ----
 //
