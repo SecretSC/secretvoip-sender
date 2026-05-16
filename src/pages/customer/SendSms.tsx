@@ -173,7 +173,13 @@ export default function SendSms() {
           route_option_id: optionId,
         });
         const cost = num(res.total_cost);
-        const ok = (res.status || "sent") !== "failed" && num(res.failed) === 0;
+        // Trust normalized backend response: accepted >=1 OR messages[0].accepted
+        // OR a non-"failed" top-level status. Only mark failed on explicit signals.
+        const msg0 = Array.isArray(res.messages) ? res.messages[0] : null;
+        const ok =
+          num(res.accepted, NaN) >= 1 ||
+          (msg0 && msg0.accepted === true) ||
+          (!!res.status && res.status !== "failed" && num(res.failed) === 0);
         if (typeof res.wallet_balance !== "undefined") {
           runningBalance = num(res.wallet_balance, runningBalance);
         } else if (ok) {
@@ -185,8 +191,9 @@ export default function SendSms() {
           const next = [...prev];
           next[idx] = {
             recipient,
-            status: ok ? (res.messages?.[0]?.status || "sent") : "failed",
+            status: ok ? (msg0?.status || "sent") : "failed",
             cost: ok ? cost : 0,
+            error: ok ? undefined : (msg0?.error || res?.message),
           };
           return next;
         });

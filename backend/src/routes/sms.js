@@ -182,46 +182,52 @@ r.post("/send", async (req, res) => {
     // Bulk sending used to pin one pg client per in-flight send, which could
     // exhaust the pool and hang /api/auth/login. We only check out a client
     // for the short wallet transaction below.
-    const result = sanitizeOutbound(await upstream.send(req.body));
+    const rawUpstream = await upstream.send(req.body);
+    const result = sanitizeOutbound(rawUpstream);
+    const norm = normalizeUpstreamSend(result, req.body);
 
-    const recipientsCount = Array.isArray(result.messages) ? result.messages.length : 1;
-    const segments = Number(result.segments || 1);
+    const recipientsCount = norm.messages.length || 1;
+    const acceptedMsgs    = norm.messages.filter((m) => m.accepted);
+    const acceptedCount   = acceptedMsgs.length;
+    const failedCount     = recipientsCount - acceptedCount;
+    const segments        = Number(result.segments || 1);
 
     let providerPer = await providerPriceFor(req.body.route_option_id);
     let providerTotal;
     if (providerPer != null) {
       providerPer = +(providerPer * segments).toFixed(4);
-      providerTotal = +(providerPer * recipientsCount).toFixed(4);
+      providerTotal = +(providerPer * acceptedCount).toFixed(4);
     } else {
-      providerTotal = Number(result.total_cost || 0);
-      providerPer = recipientsCount > 0 ? +(providerTotal / recipientsCount).toFixed(4) : 0;
+      const upstreamTotal = Number(result.total_cost || 0);
+      providerPer = recipientsCount > 0 ? +(upstreamTotal / recipientsCount).toFixed(4) : 0;
+      providerTotal = +(providerPer * acceptedCount).toFixed(4);
     }
-    const customerPer = +(providerPer * mult).toFixed(4);
-    const customerTotal = +(customerPer * recipientsCount).toFixed(4);
-    const marginPer    = +(customerPer - providerPer).toFixed(4);
+    const customerPer   = +(providerPer * mult).toFixed(4);
+    const customerTotal = +(customerPer * acceptedCount).toFixed(4);
+    const marginPer     = +(customerPer - providerPer).toFixed(4);
 
-    // Insert log rows using the pool directly (each query auto-checks-out and
-    // releases a client). No long-lived client held across awaits.
-    if (Array.isArray(result.messages)) {
-      for (const m of result.messages) {
-        try {
-          await pool.query(
-            `INSERT INTO sms_logs_cache
-               (upstream_id, customer_id, recipient, sender_id, segments,
-                cost, provider_cost, customer_cost, margin,
-                status, message, direction)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-            [
-              m.id, req.user.sub, m.recipient, req.body.sender_id || null,
-              segments,
-              customerPer,
-              providerPer, customerPer, marginPer,
-              m.status, req.body.message || null, "Auto-routed",
-            ]
-          );
-        } catch (logErr) {
-          console.error("[sms_logs_cache insert failed]", logErr?.message || logErr);
-        }
+    // Persist one log row per recipient, regardless of accepted/failed, so
+    // the admin/customer history reflects the true outcome of each message.
+    for (const m of norm.messages) {
+      try {
+        await pool.query(
+          `INSERT INTO sms_logs_cache
+             (upstream_id, customer_id, recipient, sender_id, segments,
+              cost, provider_cost, customer_cost, margin,
+              status, message, direction)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [
+            m.id, req.user.sub, m.recipient, req.body.sender_id || null,
+            segments,
+            m.accepted ? customerPer : 0,
+            m.accepted ? providerPer : 0,
+            m.accepted ? customerPer : 0,
+            m.accepted ? marginPer   : 0,
+            m.status, req.body.message || null, "Auto-routed",
+          ]
+        );
+      } catch (logErr) {
+        console.error("[sms_logs_cache insert failed]", logErr?.message || logErr);
       }
     }
 
@@ -250,7 +256,7 @@ r.post("/send", async (req, res) => {
           [
             req.user.sub,
             -customerTotal,
-            `SMS send · ${recipientsCount} recipient${recipientsCount === 1 ? "" : "s"} · route ${req.body.route_option_id || "auto"}`,
+            `SMS send · ${acceptedCount} accepted / ${recipientsCount} recipient${recipientsCount === 1 ? "" : "s"} · route ${req.body.route_option_id || "auto"}`,
           ]
         );
         await client.query("COMMIT");
@@ -260,15 +266,50 @@ r.post("/send", async (req, res) => {
       } finally {
         client.release();
       }
+    } else if (isCustomer) {
+      try {
+        const { rows } = await pool.query(
+          `SELECT COALESCE(balance_eur,0) AS balance_eur FROM customer_profiles WHERE user_id=$1`,
+          [req.user.sub]
+        );
+        newBalance = Number(rows[0]?.balance_eur ?? 0);
+      } catch {}
+    }
+
+    // If the upstream returned an unexpected shape OR any recipient failed,
+    // capture the (scrubbed) raw response so an admin can inspect it without
+    // exposing the API key or provider name.
+    if (failedCount > 0 || !Array.isArray(result.messages)) {
+      await logError({
+        req, source: "send-sms",
+        action: "POST /api/sms/send (partial/unexpected upstream)",
+        error: new Error(
+          failedCount > 0
+            ? `${failedCount}/${recipientsCount} message(s) reported failed by upstream`
+            : "Upstream response missing standard messages[] array"
+        ),
+        recipient: redactPhone(Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to),
+        sender_id: req.body.sender_id, message: req.body.message,
+        route_option_id: req.body.route_option_id,
+        status_code: failedCount > 0 ? 207 : 200,
+        extra: {
+          accepted: acceptedCount,
+          failed: failedCount,
+          upstream_response: safeUpstreamBody(rawUpstream),
+          normalized_messages: norm.messages,
+        },
+      });
     }
 
     try {
       await pool.query(
         "INSERT INTO audit_logs (actor, action, target, meta) VALUES ($1,'sms.send',$2,$3)",
         [
-          req.user.email, String((req.body.to || []).length || recipientsCount || 1),
+          req.user.email, String(recipientsCount),
           JSON.stringify({
             route: req.body.route_option_id,
+            accepted: acceptedCount,
+            failed: failedCount,
             provider_cost: providerTotal,
             customer_cost: customerTotal,
             margin: +(customerTotal - providerTotal).toFixed(4),
@@ -278,11 +319,20 @@ r.post("/send", async (req, res) => {
     } catch {}
 
     res.json({
-      ...result,
+      // Normalised, brand-safe payload. Frontend should rely on these fields.
+      status: failedCount === 0 ? "sent" : (acceptedCount > 0 ? "partial" : "failed"),
+      accepted: acceptedCount,
+      failed: failedCount,
+      messages: norm.messages.map((m) => ({
+        id: m.id, recipient: m.recipient, status: m.status,
+        accepted: m.accepted, error: m.error,
+      })),
+      segments,
       total_cost: customerTotal,
       provider_cost: req.user.role === "admin" ? providerTotal : undefined,
       margin: req.user.role === "admin" ? +(customerTotal - providerTotal).toFixed(4) : undefined,
       wallet_balance: isCustomer ? newBalance : Number(result.wallet_balance || 0),
+      safe_response: req.user.role === "admin" ? safeUpstreamBody(rawUpstream) : undefined,
     });
   } catch (e) {
     await logError({
@@ -319,6 +369,67 @@ function routeTagFor(optionId) {
 
 function safeUpstreamBody(body) {
   return scrub(body);
+}
+
+// ---- Robust upstream success detection ------------------------------------
+// Different upstream providers return wildly different success shapes:
+//   { messages: [{id, recipient, status}] }
+//   { results: [...] }     { data: [...] }   { sms: [...] }
+//   { success: true, message_id: "..." }     { status: "ok" }
+// Bulk customers reported delivered SMS being marked Failed because the old
+// code required `messages[0].id` + a whitelisted status string. We now:
+//   * normalise the response into a per-recipient array,
+//   * mark a message FAILED only on an explicit failure indicator
+//     (status in {failed,rejected,error,undelivered,invalid}, success:false,
+//     ok:false, or an `error`/`error_message` field),
+//   * otherwise treat it as accepted (queued/sent/pending) since the upstream
+//     HTTP call already returned 2xx (anything non-2xx throws upstream).
+const FAIL_RE = /^(failed|failure|rejected|error|errored|undelivered|invalid|denied|blocked)$/i;
+const OK_RE   = /^(sent|delivered|queued|accepted|pending|submitted|ok|success|processing|enroute)$/i;
+
+function normalizeUpstreamSend(raw, reqBody) {
+  const toField = reqBody?.to;
+  const recipients = Array.isArray(toField)
+    ? toField
+    : typeof toField === "string"
+      ? toField.split(",").map((s) => s.trim()).filter(Boolean)
+      : toField != null ? [toField] : [];
+
+  let arr = null;
+  if (Array.isArray(raw?.messages))      arr = raw.messages;
+  else if (Array.isArray(raw?.results))  arr = raw.results;
+  else if (Array.isArray(raw?.data))     arr = raw.data;
+  else if (Array.isArray(raw?.sms))      arr = raw.sms;
+  else if (Array.isArray(raw?.items))    arr = raw.items;
+
+  const topFailed =
+    raw && (raw.success === false || raw.ok === false ||
+      (typeof raw.status === "string" && FAIL_RE.test(raw.status)));
+
+  const source = (arr && arr.length ? arr : recipients.map((to) => ({ recipient: to })));
+  const messages = source.map((m, i) => {
+    const recipient =
+      m?.recipient || m?.to || m?.msisdn || m?.destination ||
+      m?.number || recipients[i] || recipients[0] || null;
+    const id = m?.id || m?.message_id || m?.uuid || m?.sms_id || raw?.message_id || raw?.id || null;
+    const rawStatus = String(m?.status || m?.state || m?.delivery_status || "").trim();
+    const explicitFail =
+      (rawStatus && FAIL_RE.test(rawStatus)) ||
+      m?.success === false || m?.accepted === false || m?.ok === false ||
+      !!m?.error || !!m?.error_message || topFailed;
+    const status = explicitFail
+      ? (rawStatus && FAIL_RE.test(rawStatus) ? rawStatus.toLowerCase() : "failed")
+      : (rawStatus && OK_RE.test(rawStatus) ? rawStatus.toLowerCase() : "queued");
+    return {
+      id,
+      recipient,
+      status,
+      accepted: !explicitFail,
+      error: explicitFail ? (m?.error_message || m?.error || raw?.message || undefined) : undefined,
+    };
+  });
+
+  return { messages };
 }
 
 function csvEscape(value) {
@@ -381,17 +492,17 @@ r.post("/test", testLimiter, async (req, res) => {
       const taggedMessage = `${diagPrefix}${baseMsg} - ${tag}`;
       try {
         // No long-lived pool client: upstream HTTP must not pin a pg client.
-        const r = sanitizeOutbound(await upstream.send({
-          to,
-          message: taggedMessage,
-          sender_id: senderId,
-          route_option_id: routeId,
-        }));
-        const latency_ms = Date.now() - startedAt;
-        const upstreamId = r.messages?.[0]?.id || null;
-        const upstreamStatus = r.messages?.[0]?.status || r.status || null;
-        const accepted = !!upstreamId && /^(sent|delivered|queued|accepted)$/i.test(String(upstreamStatus || ""));
+        const rawR = await upstream.send({
+          to, message: taggedMessage, sender_id: senderId, route_option_id: routeId,
+        });
+        const r = sanitizeOutbound(rawR);
+        const normR = normalizeUpstreamSend(r, { to, sender_id: senderId, route_option_id: routeId });
+        const first = normR.messages[0] || {};
+        const upstreamId = first.id || null;
+        const accepted   = !!first.accepted;
+        const upstreamStatus = first.status || (accepted ? "queued" : "failed");
         const finalStatus = accepted ? upstreamStatus : "failed";
+        const latency_ms = Date.now() - startedAt;
         const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
         const customer = +(provider * mult).toFixed(4);
         const margin   = +(customer - provider).toFixed(4);
