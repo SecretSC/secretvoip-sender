@@ -271,12 +271,15 @@ r.post("/send", async (req, res, next) => {
     await logError({
       req, source: "send-sms", action: "POST /api/sms/send",
       error: e,
-      recipient: Array.isArray(req.body?.to) ? req.body.to.join(",") : req.body?.to,
+      recipient: redactPhone(Array.isArray(req.body?.to) ? req.body.to.join(",") : req.body?.to),
       sender_id: req.body?.sender_id, message: req.body?.message,
       route_option_id: req.body?.route_option_id,
       status_code: e?.status || 500,
     });
-    next(e);
+    // Sanitise upstream error message before it reaches the client so any
+    // upstream provider brand mentioned in the failure is stripped.
+    const safeMsg = sanitizeOutbound(e?.message || "Send failed");
+    return res.status(e?.status || 500).json({ message: safeMsg });
   } finally {
     client.release();
   }
