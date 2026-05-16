@@ -42,8 +42,10 @@ export default function AdminDiagnostics() {
   const [probeRoute, setProbeRoute] = useState("beta");
   const [probeNumber, setProbeNumber] = useState("");
   const [probeMsg, setProbeMsg] = useState("Diagnostics ping from SecretVoIP");
+  const [probeSender, setProbeSender] = useState("SecretVoIP");
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<any>(null);
+  const probeSenderCheck = validateSenderId(probeSender);
 
   const refresh = async () => {
     setLoading(true);
