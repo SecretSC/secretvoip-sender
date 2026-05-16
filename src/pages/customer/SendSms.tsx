@@ -107,12 +107,15 @@ export default function SendSms() {
     toast.success("Template loaded");
   };
 
+  const senderCheck = useMemo(() => validateSenderId(sender), [sender]);
+
   const saveTemplate = async () => {
     if (!templateName.trim()) return toast.error("Template name is required");
-    if (!sender.trim() || !message.trim()) return toast.error("Sender ID and message are required");
+    if (!senderCheck.ok) return toast.error(senderCheck.message);
+    if (!message.trim()) return toast.error("Message is required");
     try {
-      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: sender, message });
-      else await api.createTemplate({ name: templateName.trim(), sender_id: sender, message });
+      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: senderCheck.value, message });
+      else await api.createTemplate({ name: templateName.trim(), sender_id: senderCheck.value, message });
       setTemplateDialog(false); setEditingTemplate(null); setTemplateName(""); refreshTemplates();
       toast.success("Template saved");
     } catch (e: any) { toast.error(e.message || "Could not save template"); }
@@ -126,6 +129,7 @@ export default function SendSms() {
   const CONCURRENCY = 5;
 
   const submit = async () => {
+    if (!senderCheck.ok) return toast.error(senderCheck.message);
     if (list.length === 0) return toast.error("Add at least one recipient");
     if (!message.trim()) return toast.error("Message can't be empty");
     if (balance <= 0) return toast.error("Insufficient balance. Top up your wallet to send SMS.");
