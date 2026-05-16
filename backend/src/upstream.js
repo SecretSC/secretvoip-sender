@@ -58,7 +58,16 @@ async function call(path, init = {}) {
 
 export const upstream = {
   send: (payload) => {
-    const p = { ...payload };
+    // Final fail-safe: even if a future caller forgets to validate,
+    // refuse to build the upstream request without a usable sender_id.
+    // This guarantees we NEVER leak the upstream provider's default sender.
+    const s = typeof payload?.sender_id === "string" ? payload.sender_id.trim() : "";
+    if (!s || s.length < 2 || s.length > 11 || !/^[A-Za-z0-9 ._-]+$/.test(s)) {
+      const err = new Error("Sender ID is required");
+      err.status = 400;
+      throw err;
+    }
+    const p = { ...payload, sender_id: s };
     if (p.route_option_id) p.route_option_id = toUpstreamOptionId(p.route_option_id);
     return call("/sms/send", { method: "POST", body: JSON.stringify(p) }).then(rebrandLabels);
   },
