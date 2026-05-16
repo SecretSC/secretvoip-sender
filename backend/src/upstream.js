@@ -1,8 +1,22 @@
 // Server-side proxy to the upstream SMS provider.
 // The API key NEVER leaves the backend.
 
-const BASE = process.env.SMS_UPSTREAM_BASE_URL;
-const KEY  = process.env.SMS_UPSTREAM_API_KEY;
+const BASE = (process.env.SMS_UPSTREAM_BASE_URL || "").trim().replace(/\/+$/, "");
+// Trim accidental whitespace/quotes from env (common when copy-pasted into
+// systemd EnvironmentFile) — these silently break Bearer auth otherwise.
+const KEY  = (process.env.SMS_UPSTREAM_API_KEY || "")
+  .trim()
+  .replace(/^['"]|['"]$/g, "");
+
+// Some upstream providers expect a non-Bearer header (e.g. `X-API-Key: <key>`).
+// Defaults preserve the previously-working `Authorization: Bearer <key>` behavior.
+// Override via env without code changes:
+//   SMS_UPSTREAM_AUTH_HEADER=X-API-Key
+//   SMS_UPSTREAM_AUTH_PREFIX=        (empty string for raw key, no "Bearer ")
+const AUTH_HEADER = (process.env.SMS_UPSTREAM_AUTH_HEADER || "Authorization").trim();
+const AUTH_PREFIX = process.env.SMS_UPSTREAM_AUTH_PREFIX != null
+  ? process.env.SMS_UPSTREAM_AUTH_PREFIX
+  : "Bearer ";
 
 // --- Provider abstraction layer ---------------------------------------------
 // The upstream provider exposes route option_ids that contain its brand name
@@ -47,7 +61,8 @@ async function call(path, init = {}) {
       signal: ctrl.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${KEY}`,
+        Accept: "application/json",
+        [AUTH_HEADER]: `${AUTH_PREFIX}${KEY}`,
         ...(init.headers || {}),
       },
     });
