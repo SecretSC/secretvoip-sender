@@ -69,7 +69,7 @@ export default function AdminDiagnostics() {
     setProbeResult(null);
     try {
       const r: any = await api.testRoutes({
-        to: probeNumber.trim().replace(/^\+/, ""),
+        to: probeNumber.trim(),
         message: probeMsg,
         sender_id: (probeSenderCheck as any).value,
         routes: [probeRoute],

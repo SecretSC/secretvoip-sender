@@ -70,7 +70,7 @@ export default function RouteTester() {
     setProgress({ done: 0, total: selected.length });
     try {
       const res: any = await api.testRoutes({
-        to: number.trim().replace(/^\+/, ""),
+        to: number.trim(),
         message,
         sender_id: sender,
         routes: selected,
