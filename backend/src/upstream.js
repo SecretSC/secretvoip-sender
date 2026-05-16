@@ -32,16 +32,35 @@ function rebrandLabels(value) {
   return value;
 }
 
+const UPSTREAM_TIMEOUT_MS = Number(process.env.SMS_UPSTREAM_TIMEOUT_MS || 20_000);
+
 async function call(path, init = {}) {
   if (!BASE || !KEY) throw new Error("Upstream SMS not configured");
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${KEY}`,
-      ...(init.headers || {}),
-    },
-  });
+  // Hard timeout so a hung upstream cannot pin a request (and its DB client)
+  // forever, which would otherwise starve the pool and block /api/auth/login.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${KEY}`,
+        ...(init.headers || {}),
+      },
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e?.name === "AbortError") {
+      const err = new Error("Upstream timed out");
+      err.status = 504;
+      throw err;
+    }
+    throw e;
+  }
+  clearTimeout(timer);
   const text = await res.text();
   let body; try { body = JSON.parse(text); } catch { body = { raw: text }; }
   if (!res.ok) {
