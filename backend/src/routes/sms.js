@@ -500,7 +500,7 @@ r.get("/diagnostics", async (req, res, next) => {
       data = await upstream.routes(true);
       upstreamOk = true;
     } catch (e) {
-      upstreamError = e?.message || "Upstream unreachable";
+      upstreamError = sanitizeOutbound(e?.message || "Upstream unreachable");
     }
     const latency_ms = Date.now() - startedAt;
 
