@@ -6,11 +6,24 @@ import { signToken, authRequired } from "../auth.js";
 
 const r = Router();
 
+const loginSchema = z.object({
+  identifier: z.string().optional(),
+  email: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().min(1, "Password is required"),
+});
+
 r.post("/login", async (req, res, next) => {
   try {
-    const { identifier, password } = z.object({
-      identifier: z.string().min(1), password: z.string().min(1),
-    }).parse(req.body);
+    const parsed = loginSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Email or username and password are required" });
+    }
+    const { password } = parsed.data;
+    const identifier = String(parsed.data.identifier || parsed.data.email || parsed.data.username || "").trim();
+    if (!identifier) {
+      return res.status(400).json({ message: "Email or username and password are required" });
+    }
     const { rows } = await pool.query(
       "SELECT * FROM users WHERE LOWER(email)=LOWER($1) OR LOWER(username)=LOWER($1) LIMIT 1",
       [identifier]

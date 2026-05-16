@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import rateLimit from "express-rate-limit";
 import { runMigrations, ensureSeedAdmin } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import smsRoutes from "./routes/sms.js";
@@ -13,11 +12,13 @@ import { logError } from "./errorLogger.js";
 
 const app = express();
 app.disable("x-powered-by");
+// Apache terminates/proxies requests in production. This must be set before
+// any route-level rate limiter so express-rate-limit handles X-Forwarded-For safely.
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({ origin: process.env.APP_URL || true, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
-app.use("/api/auth", rateLimit({ windowMs: 15 * 60_000, max: 50 }));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRoutes);
