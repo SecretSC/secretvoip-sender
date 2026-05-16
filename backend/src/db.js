@@ -24,6 +24,15 @@ export const pool = new pg.Pool({
 pool.on("error", (err) => {
   console.error("[pg pool error]", err?.message || err);
 });
+// Each newly-acquired client also needs an `error` listener — when PostgreSQL
+// is restarted (`57P01 terminating connection due to administrator command`)
+// the client emits an `error` event. Without a listener, Node throws
+// "Unhandled 'error' event" and kills the process.
+pool.on("connect", (client) => {
+  client.on("error", (err) => {
+    console.error("[pg client error]", err?.code || "", err?.message || err);
+  });
+});
 
 export async function runMigrations() {
   const schema = fs.readFileSync(path.join(__dirname, "..", "..", "db", "schema.sql"), "utf8");
