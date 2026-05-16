@@ -111,7 +111,7 @@ export default function SendSms() {
 
   const saveTemplate = async () => {
     if (!templateName.trim()) return toast.error("Template name is required");
-    if (!senderCheck.ok) return toast.error(senderCheck.message);
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
     if (!message.trim()) return toast.error("Message is required");
     try {
       if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: senderCheck.value, message });
