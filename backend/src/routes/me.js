@@ -3,6 +3,7 @@ import { authRequired } from "../auth.js";
 import { pool } from "../db.js";
 import { z } from "zod";
 import { logError } from "../errorLogger.js";
+import { validateSenderId } from "../validation.js";
 
 const r = Router();
 r.use(authRequired);
