@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { toast } from "sonner";
 import {
   Activity, CheckCircle2, XCircle, RefreshCw, KeyRound, Globe2, Loader2, Send,
