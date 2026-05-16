@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { Loader2, Radar, CheckCircle2, XCircle, Activity } from "lucide-react";
 
 const num = (v: unknown, d = 0) => {
@@ -59,7 +60,10 @@ export default function RouteTester() {
     return { ok, fail, total, avgLat };
   }, [results]);
 
+  const senderCheck = useMemo(() => validateSenderId(sender), [sender]);
+
   const run = async () => {
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
     if (!number.trim()) return toast.error("Add a destination number");
     if (selected.length === 0) return toast.error("Pick at least one route");
     setLoading(true); setResults(null);
@@ -115,8 +119,11 @@ export default function RouteTester() {
             <Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 12025550123" />
           </div>
           <div>
-            <Label>Sender ID</Label>
-            <Input value={sender} onChange={(e) => setSender(e.target.value)} />
+            <Label>Sender ID <span className="text-destructive">*</span></Label>
+            <Input value={sender} onChange={(e) => setSender(e.target.value)} aria-invalid={!senderCheck.ok} required />
+            <div className={`text-[11px] mt-1 ${senderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+              {senderCheck.ok ? SENDER_ID_HELP : (senderCheck as any).message}
+            </div>
           </div>
           <div>
             <Label>Test message</Label>
@@ -142,9 +149,15 @@ export default function RouteTester() {
             </div>
           </div>
 
-          <Button variant="hero" className="w-full" onClick={run} disabled={loading}>
+          <Button
+            variant="hero"
+            className="w-full"
+            onClick={run}
+            disabled={loading || !senderCheck.ok || !number.trim() || selected.length === 0}
+            title={!senderCheck.ok ? (senderCheck as any).message : undefined}
+          >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radar className="w-4 h-4" />}
-            {loading ? `Testing… ${progress.done}/${progress.total}` : "Run route test"}
+            {loading ? `Testing… ${progress.done}/${progress.total}` : !senderCheck.ok ? "Add Sender ID to test" : "Run route test"}
           </Button>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             Each test sends a real SMS through the upstream and is metered like a normal send. Pick a real

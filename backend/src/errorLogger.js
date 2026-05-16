@@ -1,10 +1,16 @@
 // Centralised error logger. Writes to the error_logs table so admins can
 // review every failure across the SMS system. Sensitive fields (api keys,
-// tokens, authorization headers, passwords) are scrubbed before persisting.
+// tokens, authorization headers, passwords, cookies) are scrubbed before
+// persisting; upstream provider brand names are also stripped.
 
 import { pool } from "./db.js";
 
-const REDACT_KEYS = /key|token|secret|authorization|password|bearer/i;
+const REDACT_KEYS = /key|token|secret|authorization|password|bearer|cookie|set-cookie|session/i;
+
+function scrubBrand(s) {
+  if (typeof s !== "string") return s;
+  return s.replace(/ttsky/gi, "Sub").replace(/skytelecom/gi, "Provider");
+}
 
 export function scrub(value) {
   if (Array.isArray(value)) return value.map(scrub);
@@ -15,6 +21,7 @@ export function scrub(value) {
       )
     );
   }
+  if (typeof value === "string") return scrubBrand(value);
   return value;
 }
 
@@ -72,6 +79,9 @@ export async function logError({
       stack: error?.stack ? String(error.stack).split("\n").slice(0, 6).join("\n") : undefined,
     });
 
+    // Sanitise provider branding from the message we persist & show to admins.
+    const safeMessage = typeof errorMessage === "string" ? scrubBrand(errorMessage) : errorMessage;
+
     await pool.query(
       `INSERT INTO error_logs
          (customer_id, customer_email, source, action, recipient, sender_id, message,
@@ -80,7 +90,7 @@ export async function logError({
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)`,
       [
         customer_id, customer_email, source, action, recipient, sender_id, message,
-        route, route_option_id, code, errorMessage,
+        route, route_option_id, code, safeMessage,
         JSON.stringify(safe || {}), cause, fix,
       ]
     );

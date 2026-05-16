@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import RoutePicker, { defaultSelection, RouteSelection } from "@/components/sms/RoutePicker";
 import { api } from "@/lib/api";
 import { estimateSegments, parseRecipients } from "@/lib/sms";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { toast } from "sonner";
 import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle, Save, Trash2 } from "lucide-react";
 
@@ -106,12 +107,15 @@ export default function SendSms() {
     toast.success("Template loaded");
   };
 
+  const senderCheck = useMemo(() => validateSenderId(sender), [sender]);
+
   const saveTemplate = async () => {
     if (!templateName.trim()) return toast.error("Template name is required");
-    if (!sender.trim() || !message.trim()) return toast.error("Sender ID and message are required");
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
+    if (!message.trim()) return toast.error("Message is required");
     try {
-      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: sender, message });
-      else await api.createTemplate({ name: templateName.trim(), sender_id: sender, message });
+      if (editingTemplate) await api.updateTemplate(editingTemplate.id, { name: templateName.trim(), sender_id: senderCheck.value, message });
+      else await api.createTemplate({ name: templateName.trim(), sender_id: senderCheck.value, message });
       setTemplateDialog(false); setEditingTemplate(null); setTemplateName(""); refreshTemplates();
       toast.success("Template saved");
     } catch (e: any) { toast.error(e.message || "Could not save template"); }
@@ -125,6 +129,7 @@ export default function SendSms() {
   const CONCURRENCY = 5;
 
   const submit = async () => {
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
     if (list.length === 0) return toast.error("Add at least one recipient");
     if (!message.trim()) return toast.error("Message can't be empty");
     if (balance <= 0) return toast.error("Insufficient balance. Top up your wallet to send SMS.");
@@ -259,8 +264,17 @@ export default function SendSms() {
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Sender ID</Label>
-                <Input value={sender} onChange={(e) => setSender(e.target.value)} placeholder="e.g. SecretVoIP" />
+                <Label>Sender ID <span className="text-destructive">*</span></Label>
+                <Input
+                  value={sender}
+                  onChange={(e) => setSender(e.target.value)}
+                  placeholder="e.g. SecretVoIP"
+                  aria-invalid={!senderCheck.ok}
+                  required
+                />
+                <div className={`text-[11px] mt-1 ${senderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+                  {senderCheck.ok ? SENDER_ID_HELP : (senderCheck as any).message}
+                </div>
               </div>
               <div>
                 <Label className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> Schedule (optional)</Label>
@@ -324,9 +338,16 @@ export default function SendSms() {
           )}
 
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="hero" size="lg" onClick={submit} disabled={loading || balance <= 0} className="flex-1">
+            <Button
+              variant="hero"
+              size="lg"
+              onClick={submit}
+              disabled={loading || balance <= 0 || !senderCheck.ok || list.length === 0 || !message.trim()}
+              className="flex-1"
+              title={!senderCheck.ok ? (senderCheck as any).message : undefined}
+            >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {loading ? `Sending… ${progress.done}/${progress.total}` : balance <= 0 ? "Top up to send" : "Send SMS"}
+              {loading ? `Sending… ${progress.done}/${progress.total}` : balance <= 0 ? "Top up to send" : !senderCheck.ok ? "Add Sender ID to send" : "Send SMS"}
             </Button>
             {loading && (
               <Button variant="soft" size="lg" disabled aria-disabled="true">

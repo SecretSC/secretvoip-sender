@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { toast } from "sonner";
 import {
   Activity, CheckCircle2, XCircle, RefreshCw, KeyRound, Globe2, Loader2, Send,
@@ -41,8 +42,10 @@ export default function AdminDiagnostics() {
   const [probeRoute, setProbeRoute] = useState("beta");
   const [probeNumber, setProbeNumber] = useState("");
   const [probeMsg, setProbeMsg] = useState("Diagnostics ping from SecretVoIP");
+  const [probeSender, setProbeSender] = useState("SecretVoIP");
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<any>(null);
+  const probeSenderCheck = validateSenderId(probeSender);
 
   const refresh = async () => {
     setLoading(true);
@@ -60,6 +63,7 @@ export default function AdminDiagnostics() {
   useEffect(() => { refresh(); }, []);
 
   const probe = async () => {
+    if (!probeSenderCheck.ok) return toast.error((probeSenderCheck as any).message);
     if (!probeNumber.trim()) return toast.error("Enter a destination number");
     setProbing(true);
     setProbeResult(null);
@@ -67,9 +71,10 @@ export default function AdminDiagnostics() {
       const r: any = await api.testRoutes({
         to: probeNumber.trim().replace(/^\+/, ""),
         message: probeMsg,
-        sender_id: "SecretVoIP",
+        sender_id: (probeSenderCheck as any).value,
         routes: [probeRoute],
-      });
+        diagnostics: true,
+      } as any);
       setProbeResult(r?.results?.[0] || r);
       toast.success("Probe sent");
     } catch (e: any) {
@@ -202,6 +207,13 @@ export default function AdminDiagnostics() {
             <div className="text-[11px] text-muted-foreground mt-1 break-all">option_id: {probeRoute}</div>
           </div>
           <div>
+            <Label>Sender ID <span className="text-destructive">*</span></Label>
+            <Input value={probeSender} onChange={(e) => setProbeSender(e.target.value)} aria-invalid={!probeSenderCheck.ok} required />
+            <div className={`text-[11px] mt-1 ${probeSenderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+              {probeSenderCheck.ok ? SENDER_ID_HELP : (probeSenderCheck as any).message}
+            </div>
+          </div>
+          <div>
             <Label>Destination number</Label>
             <Input value={probeNumber} onChange={(e) => setProbeNumber(e.target.value)} placeholder="e.g. 4522304047" />
           </div>
@@ -209,12 +221,18 @@ export default function AdminDiagnostics() {
             <Label>Message</Label>
             <Textarea rows={3} value={probeMsg} onChange={(e) => setProbeMsg(e.target.value)} />
             <div className="text-[11px] text-muted-foreground mt-1">
-              The selected route tag will be appended automatically.
+              The selected route tag will be appended automatically. Sent message will be prefixed with "DIAGNOSTICS TEST".
             </div>
           </div>
-          <Button variant="hero" className="w-full" onClick={probe} disabled={probing}>
+          <Button
+            variant="hero"
+            className="w-full"
+            onClick={probe}
+            disabled={probing || !probeSenderCheck.ok || !probeNumber.trim()}
+            title={!probeSenderCheck.ok ? (probeSenderCheck as any).message : undefined}
+          >
             {probing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            {probing ? "Probing…" : "Run probe"}
+            {probing ? "Probing…" : !probeSenderCheck.ok ? "Add Sender ID to probe" : "Run probe"}
           </Button>
 
           {probeResult && (
