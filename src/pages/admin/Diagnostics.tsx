@@ -63,6 +63,7 @@ export default function AdminDiagnostics() {
   useEffect(() => { refresh(); }, []);
 
   const probe = async () => {
+    if (!probeSenderCheck.ok) return toast.error((probeSenderCheck as any).message);
     if (!probeNumber.trim()) return toast.error("Enter a destination number");
     setProbing(true);
     setProbeResult(null);
@@ -70,9 +71,10 @@ export default function AdminDiagnostics() {
       const r: any = await api.testRoutes({
         to: probeNumber.trim().replace(/^\+/, ""),
         message: probeMsg,
-        sender_id: "SecretVoIP",
+        sender_id: (probeSenderCheck as any).value,
         routes: [probeRoute],
-      });
+        diagnostics: true,
+      } as any);
       setProbeResult(r?.results?.[0] || r);
       toast.success("Probe sent");
     } catch (e: any) {
