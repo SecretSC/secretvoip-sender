@@ -129,7 +129,7 @@ export default function SendSms() {
   const CONCURRENCY = 5;
 
   const submit = async () => {
-    if (!senderCheck.ok) return toast.error(senderCheck.message);
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
     if (list.length === 0) return toast.error("Add at least one recipient");
     if (!message.trim()) return toast.error("Message can't be empty");
     if (balance <= 0) return toast.error("Insufficient balance. Top up your wallet to send SMS.");
