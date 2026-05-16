@@ -295,6 +295,19 @@ r.post("/send", async (req, res) => {
         extra: {
           accepted: acceptedCount,
           failed: failedCount,
+          outbound: {
+            body_keys: Object.keys(req.body || {}),
+            route_option_id: req.body.route_option_id || null,
+            sender_id: req.body.sender_id || null,
+            recipient_sample: redactPhone(
+              Array.isArray(req.body.to) ? req.body.to[0] : String(req.body.to || "").split(",")[0]
+            ),
+            recipient_has_plus: /^\+/.test(
+              Array.isArray(req.body.to) ? req.body.to[0] || "" : String(req.body.to || "").trim()
+            ),
+            message_length: (req.body.message || "").length,
+            segments,
+          },
           upstream_response: safeUpstreamBody(rawUpstream),
           normalized_messages: norm.messages,
         },
