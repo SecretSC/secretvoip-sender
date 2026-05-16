@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import RoutePicker, { defaultSelection, RouteSelection } from "@/components/sms/RoutePicker";
 import { api } from "@/lib/api";
 import { estimateSegments, parseRecipients } from "@/lib/sms";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { toast } from "sonner";
 import { Send, Loader2, Calendar, Wallet, CheckCircle2, XCircle, Save, Trash2 } from "lucide-react";
 
