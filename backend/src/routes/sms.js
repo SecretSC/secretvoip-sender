@@ -136,22 +136,13 @@ r.get("/available-routes", async (req, res, next) => {
 r.post("/send", async (req, res, next) => {
   const client = await pool.connect();
   try {
-    const isCustomer = req.user.role === "customer";
-    const mult = await getMarkupMultiplier();
-
-    if (isCustomer) {
-      const { rows: balRows } = await pool.query(
-        `SELECT COALESCE(balance_eur, 0) AS balance_eur
-           FROM customer_profiles WHERE user_id=$1`,
-        [req.user.sub]
-      );
     // --- HARD-REQUIRED sender_id (server-side enforcement) ---
     const senderCheck = validateSenderId(req.body?.sender_id);
     if (!senderCheck.ok) {
       await logError({
         req, source: "send-sms", action: "POST /api/sms/send (validation)",
         error: new Error(senderCheck.message),
-        recipient: redactPhone(Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to),
+        recipient: redactPhone(Array.isArray(req.body?.to) ? req.body.to.join(",") : req.body?.to),
         sender_id: req.body?.sender_id || null,
         message: req.body?.message,
         route_option_id: req.body?.route_option_id,
@@ -189,6 +180,9 @@ r.post("/send", async (req, res, next) => {
     }
 
     const result = sanitizeOutbound(await upstream.send(req.body));
+
+    const recipientsCount = Array.isArray(result.messages) ? result.messages.length : 1;
+    const segments = Number(result.segments || 1);
 
     // Provider price: prefer our own catalog, fall back to upstream total
     let providerPer = await providerPriceFor(req.body.route_option_id);
