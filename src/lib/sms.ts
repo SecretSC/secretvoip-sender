@@ -27,12 +27,26 @@ export function estimateSegments(text: string) {
   }
 }
 
+// Normalise a single recipient to E.164 (`+` followed by digits).
+// The upstream provider rejects bare national-format numbers (e.g. `4522304047`)
+// per-message with `status: "failed"` even though the HTTP call returns 2xx.
+export function toE164(raw: string): string {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  // Keep a leading +, strip everything else that isn't a digit.
+  const hasPlus = s.startsWith("+") || s.startsWith("00");
+  const digits = s.replace(/[^\d]/g, "").replace(/^0+/, (m) => (s.startsWith("00") ? "" : m));
+  if (!digits) return "";
+  return hasPlus ? `+${digits}` : `+${digits}`;
+}
+
 export function parseRecipients(input: string): string[] {
   return input
     .split(/[\s,;]+/g)
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((s) => s.replace(/^\+/, ""));
+    .map(toE164)
+    .filter(Boolean);
 }
 
 export function maskKey(k?: string) {

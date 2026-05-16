@@ -90,6 +90,28 @@ async function call(path, init = {}) {
   return body;
 }
 
+// Normalise any phone number to strict E.164 (`+` followed by digits only).
+// The upstream provider per-message-rejects bare national format like
+// `4522304047`, returning `status: "failed"` even though the HTTP call is 2xx.
+function toE164(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  const hasPlus = s.startsWith("+");
+  const digits = s.replace(/[^\d]/g, "");
+  if (!digits) return "";
+  // `00` international prefix → `+`
+  if (!hasPlus && digits.length > 2 && s.startsWith("00")) return `+${digits.slice(2)}`;
+  return `+${digits}`;
+}
+
+function normaliseTo(to) {
+  if (Array.isArray(to)) return to.map(toE164).filter(Boolean);
+  if (typeof to === "string" && to.includes(",")) {
+    return to.split(",").map((x) => toE164(x.trim())).filter(Boolean).join(",");
+  }
+  return toE164(to);
+}
+
 export const upstream = {
   send: (payload) => {
     // Final fail-safe: even if a future caller forgets to validate,
@@ -102,6 +124,7 @@ export const upstream = {
       throw err;
     }
     const p = { ...payload, sender_id: s };
+    if (p.to != null) p.to = normaliseTo(p.to);
     if (p.route_option_id) p.route_option_id = toUpstreamOptionId(p.route_option_id);
     return call("/sms/send", { method: "POST", body: JSON.stringify(p) }).then(rebrandLabels);
   },
