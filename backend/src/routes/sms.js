@@ -328,8 +328,7 @@ function csvEscape(value) {
 
 // Route tester: send one real SMS per selected route, charging the customer
 // just like a normal send so logs and balance match production behaviour.
-r.post("/test", testLimiter, async (req, res, next) => {
-  const client = await pool.connect();
+r.post("/test", testLimiter, async (req, res) => {
   try {
     const { to, message, routes: testedRoutes = [] } = req.body || {};
     if (!to) return res.status(400).json({ message: "Missing destination number" });
@@ -360,7 +359,6 @@ r.post("/test", testLimiter, async (req, res, next) => {
     const baseMsg = (message || (isDiagnostics ? "DIAGNOSTICS TEST · SecretVoIP" : "Test delivery from SecretVoIP")).trim();
     const results = [];
 
-    // Pre-flight balance check for customers (one charge per selected route)
     if (isCustomer) {
       const { rows: balRows } = await pool.query(
         `SELECT COALESCE(balance_eur, 0) AS balance_eur
@@ -382,6 +380,7 @@ r.post("/test", testLimiter, async (req, res, next) => {
       const diagPrefix = isDiagnostics ? "DIAGNOSTICS TEST · " : "";
       const taggedMessage = `${diagPrefix}${baseMsg} - ${tag}`;
       try {
+        // No long-lived pool client: upstream HTTP must not pin a pg client.
         const r = sanitizeOutbound(await upstream.send({
           to,
           message: taggedMessage,
@@ -391,16 +390,14 @@ r.post("/test", testLimiter, async (req, res, next) => {
         const latency_ms = Date.now() - startedAt;
         const upstreamId = r.messages?.[0]?.id || null;
         const upstreamStatus = r.messages?.[0]?.status || r.status || null;
-        // Only count as success if upstream explicitly accepted the message.
         const accepted = !!upstreamId && /^(sent|delivered|queued|accepted)$/i.test(String(upstreamStatus || ""));
         const finalStatus = accepted ? upstreamStatus : "failed";
         const provider = (await providerPriceFor(routeId)) ?? Number(r.total_cost || 0);
         const customer = +(provider * mult).toFixed(4);
         const margin   = +(customer - provider).toFixed(4);
 
-        // Persist the test as a normal SMS log so it appears in the customer logs.
         try {
-          await client.query(
+          await pool.query(
             `INSERT INTO sms_logs_cache
                (upstream_id, customer_id, recipient, sender_id, segments,
                 cost, provider_cost, customer_cost, margin,
@@ -416,8 +413,8 @@ r.post("/test", testLimiter, async (req, res, next) => {
           );
         } catch {}
 
-        // Charge the customer for this real send (skip for admin diagnostics).
         if (isCustomer && accepted && customer > 0) {
+          const client = await pool.connect();
           try {
             await client.query("BEGIN");
             await client.query(
@@ -437,6 +434,8 @@ r.post("/test", testLimiter, async (req, res, next) => {
             await client.query("COMMIT");
           } catch {
             try { await client.query("ROLLBACK"); } catch {}
+          } finally {
+            client.release();
           }
         }
 
@@ -465,7 +464,7 @@ r.post("/test", testLimiter, async (req, res, next) => {
         });
         results.push({
           route: routeId,
-          status: "failed",
+          status: e?.status === 504 ? "timeout" : "failed",
           latency_ms: Date.now() - startedAt,
           cost: 0,
           tag,
@@ -478,7 +477,6 @@ r.post("/test", testLimiter, async (req, res, next) => {
       }
     }
 
-    // Return updated balance for the UI.
     let newBalance = null;
     if (isCustomer) {
       const { rows } = await pool.query(
@@ -490,11 +488,8 @@ r.post("/test", testLimiter, async (req, res, next) => {
 
     res.json({ status: "tested", results, wallet_balance: newBalance });
   } catch (e) {
-    try { await client.query("ROLLBACK"); } catch {}
     const safeMsg = sanitizeOutbound(e?.message || "Test failed");
     return res.status(e?.status || 500).json({ message: safeMsg });
-  } finally {
-    client.release();
   }
 });
 
