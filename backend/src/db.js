@@ -6,7 +6,24 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+// Production-hardened pool:
+// - `max` larger than bulk concurrency so a stuck bulk send can't starve
+//   login/health/dashboard queries.
+// - `connectionTimeoutMillis` so a request never waits forever for a free client.
+// - `statement_timeout` / `idle_in_transaction_session_timeout` so a hung query
+//   on the upstream-busy path can't pin a connection indefinitely.
+export const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: Number(process.env.PG_POOL_MAX || 25),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+  statement_timeout: 15_000,
+  idle_in_transaction_session_timeout: 10_000,
+});
+// Never let an unexpected pool/client error crash the process.
+pool.on("error", (err) => {
+  console.error("[pg pool error]", err?.message || err);
+});
 
 export async function runMigrations() {
   const schema = fs.readFileSync(path.join(__dirname, "..", "..", "db", "schema.sql"), "utf8");
