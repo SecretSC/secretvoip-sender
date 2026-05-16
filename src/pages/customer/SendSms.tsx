@@ -264,8 +264,17 @@ export default function SendSms() {
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Sender ID</Label>
-                <Input value={sender} onChange={(e) => setSender(e.target.value)} placeholder="e.g. SecretVoIP" />
+                <Label>Sender ID <span className="text-destructive">*</span></Label>
+                <Input
+                  value={sender}
+                  onChange={(e) => setSender(e.target.value)}
+                  placeholder="e.g. SecretVoIP"
+                  aria-invalid={!senderCheck.ok}
+                  required
+                />
+                <div className={`text-[11px] mt-1 ${senderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+                  {senderCheck.ok ? SENDER_ID_HELP : (senderCheck as any).message}
+                </div>
               </div>
               <div>
                 <Label className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> Schedule (optional)</Label>
