@@ -60,7 +60,10 @@ export default function RouteTester() {
     return { ok, fail, total, avgLat };
   }, [results]);
 
+  const senderCheck = useMemo(() => validateSenderId(sender), [sender]);
+
   const run = async () => {
+    if (!senderCheck.ok) return toast.error((senderCheck as any).message);
     if (!number.trim()) return toast.error("Add a destination number");
     if (selected.length === 0) return toast.error("Pick at least one route");
     setLoading(true); setResults(null);
