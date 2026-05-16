@@ -315,7 +315,7 @@ function csvEscape(value) {
 
 // Route tester: send one real SMS per selected route, charging the customer
 // just like a normal send so logs and balance match production behaviour.
-r.post("/test", async (req, res, next) => {
+r.post("/test", testLimiter, async (req, res, next) => {
   const client = await pool.connect();
   try {
     const { to, message, routes: testedRoutes = [] } = req.body || {};
@@ -324,9 +324,27 @@ r.post("/test", async (req, res, next) => {
       return res.status(400).json({ message: "Pick at least one route to test" });
     }
 
+    // --- HARD-REQUIRED sender_id (server-side enforcement) ---
+    const senderCheck = validateSenderId(req.body?.sender_id);
+    if (!senderCheck.ok) {
+      await logError({
+        req, source: "route-tester", action: "POST /api/sms/test (validation)",
+        error: new Error(senderCheck.message),
+        recipient: redactPhone(to), sender_id: req.body?.sender_id || null,
+        message, status_code: 400,
+        extra: {
+          routes: testedRoutes,
+          hint: "Customer must provide a valid Sender ID before testing routes.",
+        },
+      });
+      return res.status(400).json({ message: senderCheck.message });
+    }
+    const senderId = senderCheck.value;
+
     const isCustomer = req.user.role === "customer";
     const mult = await getMarkupMultiplier();
-    const baseMsg = (message || "Test delivery from SecretVoIP").trim();
+    const isDiagnostics = req.body?.diagnostics === true && req.user.role === "admin";
+    const baseMsg = (message || (isDiagnostics ? "DIAGNOSTICS TEST · SecretVoIP" : "Test delivery from SecretVoIP")).trim();
     const results = [];
 
     // Pre-flight balance check for customers (one charge per selected route)
