@@ -119,8 +119,11 @@ export default function RouteTester() {
             <Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 12025550123" />
           </div>
           <div>
-            <Label>Sender ID</Label>
-            <Input value={sender} onChange={(e) => setSender(e.target.value)} />
+            <Label>Sender ID <span className="text-destructive">*</span></Label>
+            <Input value={sender} onChange={(e) => setSender(e.target.value)} aria-invalid={!senderCheck.ok} required />
+            <div className={`text-[11px] mt-1 ${senderCheck.ok ? "text-muted-foreground" : "text-destructive"}`}>
+              {senderCheck.ok ? SENDER_ID_HELP : (senderCheck as any).message}
+            </div>
           </div>
           <div>
             <Label>Test message</Label>
