@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ROUTE_CATALOG } from "@/lib/routes";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { validateSenderId, SENDER_ID_HELP } from "@/lib/senderId";
 import { Loader2, Radar, CheckCircle2, XCircle, Activity } from "lucide-react";
 
 const num = (v: unknown, d = 0) => {
