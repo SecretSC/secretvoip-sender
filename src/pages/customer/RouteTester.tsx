@@ -149,9 +149,15 @@ export default function RouteTester() {
             </div>
           </div>
 
-          <Button variant="hero" className="w-full" onClick={run} disabled={loading}>
+          <Button
+            variant="hero"
+            className="w-full"
+            onClick={run}
+            disabled={loading || !senderCheck.ok || !number.trim() || selected.length === 0}
+            title={!senderCheck.ok ? (senderCheck as any).message : undefined}
+          >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radar className="w-4 h-4" />}
-            {loading ? `Testing… ${progress.done}/${progress.total}` : "Run route test"}
+            {loading ? `Testing… ${progress.done}/${progress.total}` : !senderCheck.ok ? "Add Sender ID to test" : "Run route test"}
           </Button>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             Each test sends a real SMS through the upstream and is metered like a normal send. Pick a real
