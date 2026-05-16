@@ -61,7 +61,8 @@ async function call(path, init = {}) {
       signal: ctrl.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${KEY}`,
+        Accept: "application/json",
+        [AUTH_HEADER]: `${AUTH_PREFIX}${KEY}`,
         ...(init.headers || {}),
       },
     });
