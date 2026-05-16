@@ -79,6 +79,9 @@ export async function logError({
       stack: error?.stack ? String(error.stack).split("\n").slice(0, 6).join("\n") : undefined,
     });
 
+    // Sanitise provider branding from the message we persist & show to admins.
+    const safeMessage = typeof errorMessage === "string" ? scrubBrand(errorMessage) : errorMessage;
+
     await pool.query(
       `INSERT INTO error_logs
          (customer_id, customer_email, source, action, recipient, sender_id, message,
@@ -87,7 +90,7 @@ export async function logError({
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)`,
       [
         customer_id, customer_email, source, action, recipient, sender_id, message,
-        route, route_option_id, code, errorMessage,
+        route, route_option_id, code, safeMessage,
         JSON.stringify(safe || {}), cause, fix,
       ]
     );
