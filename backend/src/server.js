@@ -28,14 +28,21 @@ app.use("/api/me", meRoutes);
 app.use((err, req, res, _next) => {
   console.error(err);
   // Persist every uncaught backend exception for the admin Errors page.
-  logError({
-    req,
-    source: req?.originalUrl || "backend",
-    action: `${req?.method || ""} ${req?.originalUrl || ""}`.trim(),
-    error: err,
-    status_code: err?.status || 500,
-  });
-  res.status(err.status || 500).json({ message: err.message || "Server error" });
+  // Wrapped so logging failure can never crash the request.
+  try {
+    logError({
+      req,
+      source: req?.originalUrl || "backend",
+      action: `${req?.method || ""} ${req?.originalUrl || ""}`.trim(),
+      error: err,
+      status_code: err?.status || 500,
+    })?.catch?.(() => {});
+  } catch {}
+  // Strip upstream brand from any error message that escapes to the client.
+  const msg = String(err.message || "Server error")
+    .replace(/ttsky/gi, "Sub")
+    .replace(/skytelecom/gi, "Provider");
+  res.status(err.status || 500).json({ message: msg });
 });
 
 const port = process.env.API_PORT || 3001;
