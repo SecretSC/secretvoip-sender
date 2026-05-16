@@ -1,10 +1,16 @@
 // Centralised error logger. Writes to the error_logs table so admins can
 // review every failure across the SMS system. Sensitive fields (api keys,
-// tokens, authorization headers, passwords) are scrubbed before persisting.
+// tokens, authorization headers, passwords, cookies) are scrubbed before
+// persisting; upstream provider brand names are also stripped.
 
 import { pool } from "./db.js";
 
-const REDACT_KEYS = /key|token|secret|authorization|password|bearer/i;
+const REDACT_KEYS = /key|token|secret|authorization|password|bearer|cookie|set-cookie|session/i;
+
+function scrubBrand(s) {
+  if (typeof s !== "string") return s;
+  return s.replace(/ttsky/gi, "Sub").replace(/skytelecom/gi, "Provider");
+}
 
 export function scrub(value) {
   if (Array.isArray(value)) return value.map(scrub);
@@ -15,6 +21,7 @@ export function scrub(value) {
       )
     );
   }
+  if (typeof value === "string") return scrubBrand(value);
   return value;
 }
 
