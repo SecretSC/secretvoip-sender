@@ -133,8 +133,7 @@ r.get("/available-routes", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-r.post("/send", async (req, res, next) => {
-  const client = await pool.connect();
+r.post("/send", async (req, res) => {
   try {
     // --- HARD-REQUIRED sender_id (server-side enforcement) ---
     const senderCheck = validateSenderId(req.body?.sender_id);
@@ -179,12 +178,15 @@ r.post("/send", async (req, res, next) => {
       }
     }
 
+    // IMPORTANT: do NOT hold a pool client across this upstream HTTP call.
+    // Bulk sending used to pin one pg client per in-flight send, which could
+    // exhaust the pool and hang /api/auth/login. We only check out a client
+    // for the short wallet transaction below.
     const result = sanitizeOutbound(await upstream.send(req.body));
 
     const recipientsCount = Array.isArray(result.messages) ? result.messages.length : 1;
     const segments = Number(result.segments || 1);
 
-    // Provider price: prefer our own catalog, fall back to upstream total
     let providerPer = await providerPriceFor(req.body.route_option_id);
     let providerTotal;
     if (providerPer != null) {
@@ -198,66 +200,82 @@ r.post("/send", async (req, res, next) => {
     const customerTotal = +(customerPer * recipientsCount).toFixed(4);
     const marginPer    = +(customerPer - providerPer).toFixed(4);
 
+    // Insert log rows using the pool directly (each query auto-checks-out and
+    // releases a client). No long-lived client held across awaits.
     if (Array.isArray(result.messages)) {
       for (const m of result.messages) {
-        await client.query(
-          `INSERT INTO sms_logs_cache
-             (upstream_id, customer_id, recipient, sender_id, segments,
-              cost, provider_cost, customer_cost, margin,
-              status, message, direction)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [
-            m.id, req.user.sub, m.recipient, req.body.sender_id || null,
-            segments,
-            customerPer,
-            providerPer, customerPer, marginPer,
-            m.status, req.body.message || null, "Auto-routed",
-          ]
-        );
+        try {
+          await pool.query(
+            `INSERT INTO sms_logs_cache
+               (upstream_id, customer_id, recipient, sender_id, segments,
+                cost, provider_cost, customer_cost, margin,
+                status, message, direction)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [
+              m.id, req.user.sub, m.recipient, req.body.sender_id || null,
+              segments,
+              customerPer,
+              providerPer, customerPer, marginPer,
+              m.status, req.body.message || null, "Auto-routed",
+            ]
+          );
+        } catch (logErr) {
+          console.error("[sms_logs_cache insert failed]", logErr?.message || logErr);
+        }
       }
     }
 
     let newBalance = null;
     if (isCustomer && customerTotal > 0) {
-      await client.query("BEGIN");
-      await client.query(
-        `INSERT INTO customer_profiles (user_id, balance_eur)
-         VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`,
-        [req.user.sub]
-      );
-      const { rows: upd } = await client.query(
-        `UPDATE customer_profiles
-            SET balance_eur = balance_eur - $1
-          WHERE user_id = $2
-          RETURNING balance_eur`,
-        [customerTotal, req.user.sub]
-      );
-      newBalance = Number(upd[0]?.balance_eur ?? 0);
-      await client.query(
-        `INSERT INTO wallet_transactions
-           (customer_id, amount_eur, type, note, created_by)
-         VALUES ($1, $2, 'charge', $3, 'system')`,
-        [
-          req.user.sub,
-          -customerTotal,
-          `SMS send · ${recipientsCount} recipient${recipientsCount === 1 ? "" : "s"} · route ${req.body.route_option_id || "auto"}`,
-        ]
-      );
-      await client.query("COMMIT");
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `INSERT INTO customer_profiles (user_id, balance_eur)
+           VALUES ($1, 0) ON CONFLICT (user_id) DO NOTHING`,
+          [req.user.sub]
+        );
+        const { rows: upd } = await client.query(
+          `UPDATE customer_profiles
+              SET balance_eur = balance_eur - $1
+            WHERE user_id = $2
+            RETURNING balance_eur`,
+          [customerTotal, req.user.sub]
+        );
+        newBalance = Number(upd[0]?.balance_eur ?? 0);
+        await client.query(
+          `INSERT INTO wallet_transactions
+             (customer_id, amount_eur, type, note, created_by)
+           VALUES ($1, $2, 'charge', $3, 'system')`,
+          [
+            req.user.sub,
+            -customerTotal,
+            `SMS send · ${recipientsCount} recipient${recipientsCount === 1 ? "" : "s"} · route ${req.body.route_option_id || "auto"}`,
+          ]
+        );
+        await client.query("COMMIT");
+      } catch (txErr) {
+        try { await client.query("ROLLBACK"); } catch {}
+        console.error("[wallet tx failed]", txErr?.message || txErr);
+      } finally {
+        client.release();
+      }
     }
 
-    await pool.query(
-      "INSERT INTO audit_logs (actor, action, target, meta) VALUES ($1,'sms.send',$2,$3)",
-      [
-        req.user.email, String((req.body.to || []).length || recipientsCount || 1),
-        JSON.stringify({
-          route: req.body.route_option_id,
-          provider_cost: providerTotal,
-          customer_cost: customerTotal,
-          margin: +(customerTotal - providerTotal).toFixed(4),
-        }),
-      ]
-    );
+    try {
+      await pool.query(
+        "INSERT INTO audit_logs (actor, action, target, meta) VALUES ($1,'sms.send',$2,$3)",
+        [
+          req.user.email, String((req.body.to || []).length || recipientsCount || 1),
+          JSON.stringify({
+            route: req.body.route_option_id,
+            provider_cost: providerTotal,
+            customer_cost: customerTotal,
+            margin: +(customerTotal - providerTotal).toFixed(4),
+          }),
+        ]
+      );
+    } catch {}
 
     res.json({
       ...result,
@@ -267,7 +285,6 @@ r.post("/send", async (req, res, next) => {
       wallet_balance: isCustomer ? newBalance : Number(result.wallet_balance || 0),
     });
   } catch (e) {
-    try { await client.query("ROLLBACK"); } catch {}
     await logError({
       req, source: "send-sms", action: "POST /api/sms/send",
       error: e,
@@ -276,12 +293,8 @@ r.post("/send", async (req, res, next) => {
       route_option_id: req.body?.route_option_id,
       status_code: e?.status || 500,
     });
-    // Sanitise upstream error message before it reaches the client so any
-    // upstream provider brand mentioned in the failure is stripped.
     const safeMsg = sanitizeOutbound(e?.message || "Send failed");
     return res.status(e?.status || 500).json({ message: safeMsg });
-  } finally {
-    client.release();
   }
 });
 
