@@ -504,9 +504,10 @@ r.get("/diagnostics", async (req, res, next) => {
     }
     const latency_ms = Date.now() - startedAt;
 
+    // Only mark a family as "working" if upstream actually responded.
+    // Timeout / network failure => unknown, not success.
     const families = { alpha: false, beta: false, epsilon: false, gamma: false };
-    if (data) {
-      // Flat routes: backend assumes alpha/beta/epsilon are always provided.
+    if (upstreamOk && data) {
       families.alpha = true;
       families.beta = true;
       const epsList = Array.isArray(data?.epsilon_subroutes)
@@ -514,11 +515,14 @@ r.get("/diagnostics", async (req, res, next) => {
         : Array.isArray(data?.epsilon)
         ? data.epsilon
         : [];
-      families.epsilon = epsList.length > 0 || true; // upstream surfaces these via flat catalog too
+      families.epsilon = true; // flat epsilon is always exposed when upstream responded
       const gammaCountries = data?.gamma_by_country
         ? Object.keys(data.gamma_by_country).length
         : Array.isArray(data?.gamma_options) ? data.gamma_options.length : 0;
       families.gamma = gammaCountries > 0;
+      if (epsList.length === 0) {
+        // intentional: surfaced as a warning below
+      }
     }
 
     const mult = await getMarkupMultiplier();
