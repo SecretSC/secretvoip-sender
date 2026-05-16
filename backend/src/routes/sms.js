@@ -145,12 +145,38 @@ r.post("/send", async (req, res, next) => {
            FROM customer_profiles WHERE user_id=$1`,
         [req.user.sub]
       );
+    // --- HARD-REQUIRED sender_id (server-side enforcement) ---
+    const senderCheck = validateSenderId(req.body?.sender_id);
+    if (!senderCheck.ok) {
+      await logError({
+        req, source: "send-sms", action: "POST /api/sms/send (validation)",
+        error: new Error(senderCheck.message),
+        recipient: redactPhone(Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to),
+        sender_id: req.body?.sender_id || null,
+        message: req.body?.message,
+        route_option_id: req.body?.route_option_id,
+        status_code: 400,
+        extra: { hint: "Customer must provide a valid Sender ID before sending." },
+      });
+      return res.status(400).json({ message: senderCheck.message });
+    }
+    req.body.sender_id = senderCheck.value;
+
+    const isCustomer = req.user.role === "customer";
+    const mult = await getMarkupMultiplier();
+
+    if (isCustomer) {
+      const { rows: balRows } = await pool.query(
+        `SELECT COALESCE(balance_eur, 0) AS balance_eur
+           FROM customer_profiles WHERE user_id=$1`,
+        [req.user.sub]
+      );
       const currentBalance = Number(balRows[0]?.balance_eur ?? 0);
       if (currentBalance <= 0) {
         await logError({
           req, source: "send-sms", action: "POST /api/sms/send",
           error: new Error("Insufficient balance"),
-          recipient: Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to,
+          recipient: redactPhone(Array.isArray(req.body.to) ? req.body.to.join(",") : req.body.to),
           sender_id: req.body.sender_id, message: req.body.message,
           route_option_id: req.body.route_option_id, status_code: 402,
           extra: { balance_eur: currentBalance },
@@ -162,10 +188,7 @@ r.post("/send", async (req, res, next) => {
       }
     }
 
-    const result = await upstream.send(req.body);
-
-    const recipientsCount = Array.isArray(result.messages) ? result.messages.length : 1;
-    const segments = Number(result.segments || 1);
+    const result = sanitizeOutbound(await upstream.send(req.body));
 
     // Provider price: prefer our own catalog, fall back to upstream total
     let providerPer = await providerPriceFor(req.body.route_option_id);
