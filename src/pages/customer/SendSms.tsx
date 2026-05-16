@@ -338,9 +338,16 @@ export default function SendSms() {
           )}
 
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="hero" size="lg" onClick={submit} disabled={loading || balance <= 0} className="flex-1">
+            <Button
+              variant="hero"
+              size="lg"
+              onClick={submit}
+              disabled={loading || balance <= 0 || !senderCheck.ok || list.length === 0 || !message.trim()}
+              className="flex-1"
+              title={!senderCheck.ok ? (senderCheck as any).message : undefined}
+            >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {loading ? `Sending… ${progress.done}/${progress.total}` : balance <= 0 ? "Top up to send" : "Send SMS"}
+              {loading ? `Sending… ${progress.done}/${progress.total}` : balance <= 0 ? "Top up to send" : !senderCheck.ok ? "Add Sender ID to send" : "Send SMS"}
             </Button>
             {loading && (
               <Button variant="soft" size="lg" disabled aria-disabled="true">
